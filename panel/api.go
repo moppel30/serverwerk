@@ -220,46 +220,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	a.st.Read(func(s *State) { v["panelName"] = s.Settings.PanelName; v["accent"] = s.Settings.Accent })
 	v["lang"] = lang()
 	v["version"] = a.version
-	if u != nil {
-		v["addrHost"] = a.addrHost(r)
-	}
 	jsonOut(w, v)
-}
-
-// addrHost ist die Adresse, die Spieler bei Servern ohne Alias/Domain nutzen.
-// Leer heißt: die Adresse aus der Browserzeile passt (IP oder Name im Heimnetz).
-// Läuft das Panel über eine Domain (z. B. Cloudflare Tunnel), kommt man darüber
-// nicht an die Spielports, dann zählt der eigene Hostname (DynDNS) oder die öffentliche IP.
-func (a *App) addrHost(r *http.Request) string {
-	h := r.Host
-	if x, _, err := net.SplitHostPort(h); err == nil {
-		h = x
-	}
-	h = strings.ToLower(strings.Trim(h, "[]"))
-	if isLocalName(h) {
-		return ""
-	}
-	var target, cfHost string
-	a.st.Read(func(s *State) { target, cfHost = s.Settings.CFTarget, s.Settings.CFHost })
-	if target == "host" && cfHost != "" {
-		return cfHost
-	}
-	if ip, err := detectPublicIP(false); err == nil {
-		return ip
-	}
-	return ""
-}
-
-func isLocalName(h string) bool {
-	if h == "" || net.ParseIP(h) != nil || !strings.Contains(h, ".") {
-		return true
-	}
-	for _, suf := range []string{".local", ".lan", ".home", ".internal", ".localdomain", ".fritz.box", ".home.arpa", ".localhost"} {
-		if strings.HasSuffix(h, suf) {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *App) myPassword(w http.ResponseWriter, r *http.Request) {

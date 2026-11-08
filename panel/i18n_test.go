@@ -28,11 +28,3 @@ func TestTranslate(t *testing.T) {
 		t.Errorf("Deutsch darf nicht übersetzt werden: %q", got)
 	}
 }
-
-func TestIsLocalName(t *testing.T) {
-	for h, want := range map[string]bool{"192.168.178.54": true, "otto": true, "otto.fritz.box": true, "::1": true, "panel.example.com": false, "home.ddns.net": false} {
-		if got := isLocalName(h); got != want {
-			t.Errorf("isLocalName(%q) = %v, want %v", h, got, want)
-		}
-	}
-}
