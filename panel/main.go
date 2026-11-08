@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.12.1"
+var version = "0.12.2"
 
 //go:embed web
 var webFS embed.FS
@@ -108,6 +108,7 @@ func main() {
 	go app.scheduleLoop()
 	go app.dnsLoop()
 	go app.dnsCleanupLoop()
+	go app.controlSocket()
 	app.watchSignals()
 
 	mux := http.NewServeMux()
@@ -192,35 +193,25 @@ func resetPassword(data string, args []string) {
 		fmt.Fprintln(os.Stderr, "Aufruf: serverwerk passwort <name> [neues-passwort]")
 		os.Exit(2)
 	}
-	st, err := openStore(data)
-	if err != nil {
-		log.Fatal(err)
-	}
 	pw := ""
 	if len(args) > 1 {
 		pw = args[1]
 	} else {
 		pw = randomPassword()
 	}
-	if len(pw) < 8 {
-		log.Fatal("Passwort braucht mindestens 8 Zeichen")
-	}
-	found := false
-	err = st.Update(func(s *State) error {
-		for _, u := range s.Users {
-			if strings.EqualFold(u.Name, args[0]) {
-				u.Salt = newID(16)
-				u.Hash = hashPassword(pw, u.Salt)
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("Benutzer %s gibt es nicht", args[0])
-		}
-		return nil
-	})
+	// Läuft das Panel, muss es die Änderung selbst machen (sonst überschreibt es sie).
+	running, err := sendControl(data, controlReq{Cmd: "password", Name: args[0], Password: pw})
 	if err != nil {
 		log.Fatal(err)
+	}
+	if !running {
+		st, err := openStore(data)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := setUserPassword(st, args[0], pw); err != nil {
+			log.Fatal(err)
+		}
 	}
 	fmt.Printf("Neues Passwort für %s: %s\n", args[0], pw)
 }

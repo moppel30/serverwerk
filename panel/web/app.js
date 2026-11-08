@@ -2019,18 +2019,30 @@ async function pageSystem(page) {
 /* ---------- Konto ---------- */
 function pageAccount(page) {
   page.innerHTML = `<div class="head"><div><h1>Konto</h1><div class="sub term-label">$ passwd ${esc(S.me.name)}</div></div></div>
-    <div class="panel" style="max-width:520px"><form class="pb stack">
+    <div class="panel" style="max-width:520px"><div class="ph"><h2>${tt('Benutzername', 'Username')}</h2></div><form class="pb stack" id="acc-name">
+    <label class="f">${tt('Name', 'Name')}<input class="input notr" name="name" required minlength="2" maxlength="32" value="${esc(S.me.name)}" autocomplete="username"><small>${tt('2-32 Zeichen, nur Buchstaben, Zahlen, . _ -. Damit meldest du dich künftig an.', '2-32 characters, only letters, numbers, . _ -. You log in with it from now on.')}</small></label>
+    <div><button class="btn primary">${tt('Namen ändern', 'Change name')}</button></div></form></div>
+    <div class="panel" style="max-width:520px;margin-top:14px"><div class="ph"><h2>${tt('Passwort', 'Password')}</h2></div><form class="pb stack" id="acc-pw">
     <label class="f">Altes Passwort<input class="input" type="password" name="old" required autocomplete="current-password"></label>
     <label class="f">Neues Passwort<input class="input" type="password" name="neu" required minlength="8" autocomplete="new-password"></label>
-    <div><button class="btn primary">Passwort ändern</button></div></form></div>
-    <div class="panel" style="max-width:520px;margin-top:14px"><div class="pb row"><span class="grow">Erscheinungsbild</span>
-      <div class="chips">${['auto', 'dark', 'light'].map(t => `<button class="chip" data-t="${t}">${{ auto: 'System', dark: 'Dunkel', light: 'Hell' }[t]}</button>`).join('')}</div></div></div>`;
-  $('form', page).onsubmit = e => {
+    <div><button class="btn primary">Passwort ändern</button></div></form></div>`;
+  $('#acc-name', page).onsubmit = e => {
+    e.preventDefault();
+    const name = e.target.name.value.trim();
+    if (name === S.me.name) return;
+    api('POST', '/me/name', { name }).then(r => {
+      S.me.name = r.name; toast(tt('Name geändert', 'Name changed'), 'good');
+      // Name unten links und in der Überschrift gleich mit anpassen.
+      const who = $('.side-foot .who'), av = $('.side-foot .avatar');
+      if (who) who.textContent = r.name;
+      if (av) av.textContent = r.name[0];
+      pageAccount(page);
+    }).catch(fail);
+  };
+  $('#acc-pw', page).onsubmit = e => {
     e.preventDefault(); const f = e.target;
     api('POST', '/me/password', { old: f.old.value, new: f.neu.value }).then(() => { toast('Passwort geändert', 'good'); f.reset(); }).catch(fail);
   };
-  const cur = localStorage.getItem('sw-theme') || 'auto';
-  $$('[data-t]').forEach(b => { b.classList.toggle('on', b.dataset.t === cur); b.onclick = () => { setTheme(b.dataset.t); pageAccount(page); }; });
 }
 function setTheme(t) {
   try { localStorage.setItem('sw-theme', t); } catch { }

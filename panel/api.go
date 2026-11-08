@@ -58,6 +58,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	h := func(p string, f http.HandlerFunc) { api.HandleFunc(p, f) }
 	h("GET /api/me", a.me)
 	h("POST /api/me/password", a.myPassword)
+	h("POST /api/me/name", a.myName)
 	h("GET /api/servers", a.serverList)
 	h("POST /api/servers", a.admin(a.serverCreate))
 	h("GET /api/servers/{id}", a.srv("view", a.serverGet))
@@ -226,6 +227,39 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	v["lang"] = lang()
 	v["version"] = a.version
 	jsonOut(w, v)
+}
+
+// myName ändert den eigenen Benutzernamen. Server und Rechte hängen an der ID, nicht am Namen.
+func (a *App) myName(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Name string }
+	if readJSON(r, &in) != nil {
+		jsonErr(w, 400, "Ungültige Anfrage")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if !validName(name) {
+		jsonErr(w, 400, "Name: 2-32 Zeichen, nur Buchstaben, Zahlen, . _ -")
+		return
+	}
+	u := currentUser(r)
+	err := a.st.Update(func(s *State) error {
+		for _, x := range s.Users {
+			if x.ID != u.ID && strings.EqualFold(x.Name, name) {
+				return fmt.Errorf("Name ist schon vergeben")
+			}
+		}
+		for _, x := range s.Users {
+			if x.ID == u.ID {
+				x.Name = name
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		jsonErr(w, 409, err.Error())
+		return
+	}
+	jsonOut(w, map[string]string{"name": name})
 }
 
 func (a *App) myPassword(w http.ResponseWriter, r *http.Request) {
