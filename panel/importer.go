@@ -493,6 +493,7 @@ func (a *App) importRun(w http.ResponseWriter, r *http.Request) {
 		dir := a.m.ServerDir(srv.ID)
 		os.MkdirAll(dir, 0755)
 		a.st.Update(func(st *State) error { st.Servers = append(st.Servers, srv); return nil })
+		go a.applyAutoDomain(srv.ID)
 		ps.Imported = srv.ID
 		res.ID = srv.ID
 		results = append(results, res)

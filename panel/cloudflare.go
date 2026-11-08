@@ -46,13 +46,15 @@ type cfResp struct {
 	Result json.RawMessage `json:"result"`
 }
 
+var cfBase = "https://api.cloudflare.com/client/v4"
+
 func cfCall(token, method, path string, body any, out any) error {
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
 		rd = bytes.NewReader(b)
 	}
-	req, _ := http.NewRequest(method, "https://api.cloudflare.com/client/v4"+path, rd)
+	req, _ := http.NewRequest(method, cfBase+path, rd)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpc.Do(req)
@@ -318,7 +320,7 @@ func (a *App) settingsGet(w http.ResponseWriter, r *http.Request) {
 		"panelName": set.PanelName, "accent": set.Accent, "language": set.Language,
 		"cfConnected": set.CFToken != "", "cfToken": maskToken(set.CFToken), "cfZones": set.CFZones,
 		"cfTarget": firstNonEmpty(set.CFTarget, "ip"), "cfHost": set.CFHost, "domainServers": n,
-		"ports":    set.Ports,
+		"ports": set.Ports, "autoDomain": set.AutoDomain,
 		"defaults": set.Defaults, "security": set.Security,
 		"timezone": set.Timezone, "hostTimezone": hostTimezone(), "version": a.version,
 	}
@@ -346,16 +348,21 @@ var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		PanelName *string           `json:"panelName"`
-		Accent    *string           `json:"accent"`
-		CFToken   *string           `json:"cfToken"`
-		CFTarget  *string           `json:"cfTarget"`
-		CFHost    *string           `json:"cfHost"`
-		Ports     *string           `json:"ports"`
-		Timezone  *string           `json:"timezone"`
-		Language  *string           `json:"language"`
-		Defaults  *ServerDefaults   `json:"defaults"`
-		Security  *SecuritySettings `json:"security"`
+		PanelName  *string           `json:"panelName"`
+		Accent     *string           `json:"accent"`
+		CFToken    *string           `json:"cfToken"`
+		CFTarget   *string           `json:"cfTarget"`
+		CFHost     *string           `json:"cfHost"`
+		Ports      *string           `json:"ports"`
+		Timezone   *string           `json:"timezone"`
+		Language   *string           `json:"language"`
+		Defaults   *ServerDefaults   `json:"defaults"`
+		Security   *SecuritySettings `json:"security"`
+		AutoDomain *struct {
+			Enabled bool   `json:"enabled"`
+			ZoneID  string `json:"zoneId"`
+			Sub     string `json:"sub"`
+		} `json:"autoDomain"`
 	}
 	if readJSON(r, &in) != nil {
 		jsonErr(w, 400, "Ungültige Anfrage")
@@ -398,8 +405,30 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		}
 		in.CFHost = &h
 	}
+	var auto *AutoDomain
+	if x := in.AutoDomain; x != nil && x.Enabled {
+		sub := strings.Trim(strings.ToLower(strings.TrimSpace(x.Sub)), ".")
+		if sub != "" && (sub == "@" || !prefixRe.MatchString(sub)) {
+			jsonErr(w, 400, "Ungültiger Name: nur a-z, 0-9, Punkt und Bindestrich")
+			return
+		}
+		a.st.Read(func(st *State) {
+			for _, z := range st.Settings.CFZones {
+				if z.ID == x.ZoneID {
+					auto = &AutoDomain{ZoneID: z.ID, ZoneName: z.Name, Sub: sub}
+				}
+			}
+		})
+		if auto == nil {
+			jsonErr(w, 400, "Domain wählen (vorher Cloudflare in den Einstellungen verbinden)")
+			return
+		}
+	}
 	a.st.Update(func(st *State) error {
 		s := &st.Settings
+		if in.AutoDomain != nil {
+			s.AutoDomain = auto
+		}
 		if in.PanelName != nil && strings.TrimSpace(*in.PanelName) != "" {
 			s.PanelName = strings.TrimSpace(*in.PanelName)
 		}
@@ -446,6 +475,9 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 	// Ziel geändert: alle Domains neu schreiben.
 	if in.CFTarget != nil || in.CFHost != nil {
 		go a.syncAllDomains()
+	}
+	if auto != nil {
+		go a.applyAutoDomainsAll()
 	}
 	a.settingsGet(w, r)
 }

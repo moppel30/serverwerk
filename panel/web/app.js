@@ -1214,7 +1214,7 @@ async function pageCreate(page) {
         <div class="row wrap" style="gap:8px;align-items:center">
           <input class="input mono" name="dpre" placeholder="${isMC ? 'minecraft' : 'name'}" style="max-width:220px">
           <span class="mono muted">.</span>
-          <select class="input" name="dzone" style="max-width:260px"><option value="">keine Domain</option>${set.cfZones.map((z, i) => `<option value="${z.id}">${esc(z.name)}</option>`).join('')}</select></div>
+          <select class="input" name="dzone" style="max-width:260px">${set.autoDomain ? `<option value="">${tt('automatisch', 'automatic')} (${esc(['name', set.autoDomain.sub, set.autoDomain.zoneName].filter(Boolean).join('.'))})</option><option value="none">${tt('keine Domain', 'no domain')}</option>` : `<option value="">${tt('keine Domain', 'no domain')}</option>`}${set.cfZones.map((z, i) => `<option value="${z.id}">${esc(z.name)}</option>`).join('')}</select></div>
         <small class="faint" style="font-size:12.5px">${isMC ? 'Spieler verbinden sich dann ohne Port, z. B. mit minecraft.deinedomain.de. ' : ''}Kannst du auch später unter Einstellungen des Servers ändern.</small></div></div>` : ''}
       <div class="row wrap"><button class="btn primary big">${I('check')}Server anlegen</button>
         <label class="check"><input type="checkbox" name="start" ${set.defaults?.startAfter !== false ? 'checked' : ''}>nach der Installation starten</label></div>
@@ -1228,10 +1228,10 @@ async function pageCreate(page) {
       try {
         const srv = await api('POST', '/servers', {
           name: f.name.value, owner: f.owner.value, egg: egg.id, memory: +f.memory.value, cpu: +f.cpu.value, disk: +f.disk.value,
-          ports: f.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number), image: f.image.value, env, startAfter: f.start.checked,
+          ports: f.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number), image: f.image.value, env, startAfter: f.start.checked, noAutoDomain: !!f.dzone?.value,
         });
         toast('Server angelegt, Installation läuft', 'good');
-        if (f.dzone?.value) {
+        if (f.dzone?.value && f.dzone.value !== 'none') {
           await api('POST', `/servers/${srv.id}/domain`, { zoneId: f.dzone.value, prefix: f.dpre.value })
             .then(r => toast(`Domain ${r.prefix === '@' ? r.zoneName : r.prefix + '.' + r.zoneName} eingerichtet`, 'good'))
             .catch(err => toast('Server ist angelegt, aber die Domain ging nicht: ' + err.message, 'bad'));
@@ -1605,6 +1605,7 @@ async function pageSettings(page, sec = 'allgemein') {
     <section data-sec="cloudflare" class="stack">
       <div class="panel"><div class="ph"><h2>Cloudflare</h2><span id="cf-tag"></span></div><div class="pb stack" id="cf"></div></div>
       <div class="panel" id="pub-panel" hidden><div class="ph"><h2>Panel öffentlich machen</h2><span id="pub-tag"></span></div><div class="pb stack" id="pub"></div></div>
+      <div class="panel" id="auto-panel" hidden><div class="ph"><h2>${tt('Automatische Server-Adressen', 'Automatic server addresses')}</h2><span id="auto-tag"></span></div><div class="pb stack" id="auto"></div></div>
     </section>
 
     <section data-sec="import" class="stack"><div id="imp"></div></section>
@@ -1636,6 +1637,7 @@ async function pageSettings(page, sec = 'allgemein') {
   const drawCF = d => {
     $('#cf-tag').innerHTML = d.cfConnected ? '<span class="tag acc">verbunden</span>' : '';
     drawPub(d);
+    drawAuto(d);
     if (!d.cfConnected) {
       cf.innerHTML = `<p class="muted" style="margin:0">${tt('Verbinde dein Cloudflare-Konto, dann bekommt jeder Server auf Wunsch eine eigene Adresse wie <span class="mono">minecraft.deinedomain.de</span>. Bei Minecraft Java brauchen Spieler dann keinen Port mehr.', 'Connect your Cloudflare account and every server can get its own address like <span class="mono">minecraft.example.com</span>. For Minecraft Java, players then don\'t need a port anymore.')}</p>
         ${tt(`<ol class="steps-list">
@@ -1678,6 +1680,37 @@ async function pageSettings(page, sec = 'allgemein') {
     $('#cf-save').onclick = () => api('PUT', '/settings', { cfTarget: $('input[name=tg]:checked').value, cfHost: $('#cf-h').value }).then(r => { toast('Gespeichert, Einträge werden angepasst', 'good'); cfOpen = false; drawCF(r); }).catch(fail);
     $('#cf-close').onclick = () => { cfOpen = false; drawCF(d); };
     $('#cf-new').onclick = () => drawCF({ ...d, cfConnected: false });
+  };
+
+  // Jeder Server bekommt automatisch name.<basis>, z. B. survival.panel.example.com.
+  const drawAuto = d => {
+    const box = $('#auto'), card = $('#auto-panel');
+    card.hidden = !d.cfConnected;
+    if (!d.cfConnected) return;
+    const ad = d.autoDomain, zones = d.cfZones || [];
+    const p = d.panel && d.panel.prefix !== '@' ? d.panel : null;
+    const sub = ad ? ad.sub : (p ? p.prefix : 'play');
+    const zoneId = ad ? ad.zoneId : (d.panel?.zoneId || zones[0]?.id);
+    $('#auto-tag').innerHTML = ad ? `<span class="tag acc">${tt('an', 'on')}</span>` : '';
+    box.innerHTML = `<p class="muted" style="margin:0">${tt('Jeder Server bekommt automatisch eine eigene Adresse aus seinem Namen, z. B. <span class="mono">survival.panel.example.com</span>. Bei Minecraft Java ganz ohne Port, bei anderen Spielen mit Port dahinter. Die Adressen zeigen auf deinen Anschluss und werden angepasst, wenn sich die öffentliche IP ändert.', 'Every server automatically gets its own address from its name, e.g. <span class="mono">survival.panel.example.com</span>. For Minecraft Java with no port at all, for other games with the port appended. The addresses point to your connection and are updated when your public IP changes.')}</p>
+      <label class="check"><input type="checkbox" id="au-on" ${ad ? 'checked' : ''}>${tt('Automatische Adressen für alle Server', 'Automatic addresses for all servers')}</label>
+      <div class="row wrap" style="gap:8px;align-items:center">
+        <span class="mono muted">${tt('name', 'name')}.</span>
+        <input class="input mono" id="au-sub" value="${esc(sub)}" placeholder="panel" style="max-width:180px">
+        <span class="mono muted">.</span>
+        <select class="input" id="au-zone" style="max-width:240px">${zones.map(z => `<option value="${z.id}" ${z.id === zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select></div>
+      <div class="mono faint notr" id="au-ex" style="font-size:13px"></div>
+      <div class="banner" style="margin:0"><span class="grow" style="font-size:13px">${tt('Die Ports der Server müssen im Router an diesen Rechner weitergeleitet sein. Beim Einschalten bekommen auch alle bestehenden Server ohne Domain eine Adresse. Mittleres Feld leer lassen = direkt unter der Domain.', 'The ports of the servers must be forwarded to this machine in your router. When you turn this on, all existing servers without a domain get an address too. Leave the middle field empty = directly under the domain.')}</span></div>
+      <div><button class="btn primary" id="au-save">${I('check')}${tt('Speichern', 'Save')}</button></div>`;
+    const ex = () => {
+      const z = zones.find(z => z.id === $('#au-zone').value)?.name || '';
+      const sb = $('#au-sub').value.trim().replace(/^\.+|\.+$/g, '').toLowerCase();
+      $('#au-ex').textContent = (tt('Beispiel: ', 'Example: ')) + ['survival', sb, z].filter(Boolean).join('.');
+    };
+    ex();
+    $('#au-sub').oninput = ex; $('#au-zone').onchange = ex;
+    $('#au-save').onclick = () => api('PUT', '/settings', { autoDomain: { enabled: $('#au-on').checked, zoneId: $('#au-zone').value, sub: $('#au-sub').value } })
+      .then(r => { toast($('#au-on').checked ? tt('Gespeichert, Adressen werden angelegt', 'Saved, addresses are being created') : tt('Gespeichert', 'Saved'), 'good'); drawCF(r); }).catch(fail);
   };
 
   // Panel über eine Domain erreichbar machen (Cloudflare Tunnel).

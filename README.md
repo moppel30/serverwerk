@@ -34,7 +34,8 @@ contains a one-time setup code, so nobody else on your network can get there fir
 - **Allocations**: define port ranges, new servers get a free port automatically, optionally with
   an alias (e.g. your router's DynDNS address).
 - **Cloudflare**: own addresses like `minecraft.example.com` per server (with an SRV record for
-  Minecraft Java, so no port needed), automatic update when your public IP changes, and make the
+  Minecraft Java, so no port needed), optionally automatic for every server (e.g.
+  `survival.panel.example.com`), automatic update when your public IP changes, and make the
   panel itself public via Cloudflare Tunnel (HTTPS, no port forwarding).
 - **Import from Pterodactyl**: take over servers with ports, limits, variables, egg and all files.
   Also works when Pterodactyl runs in a VM on the same machine.

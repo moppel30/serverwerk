@@ -35,7 +35,8 @@ Netz zuvorkommt.
 - **Allocations**: Portbereiche festlegen, neue Server bekommen automatisch einen freien Port,
   optional mit Alias (z. B. die DynDNS-Adresse des Routers).
 - **Cloudflare**: eigene Adressen wie `minecraft.example.com` pro Server (bei Minecraft Java
-  mit SRV-Eintrag, also ohne Port), automatische Anpassung bei neuer öffentlicher IP,
+  mit SRV-Eintrag, also ohne Port), auf Wunsch automatisch für jeden Server (z. B.
+  `survival.panel.example.com`), automatische Anpassung bei neuer öffentlicher IP,
   und das Panel selbst per Cloudflare Tunnel öffentlich machen (HTTPS, ohne Portfreigabe).
 - **Import aus Pterodactyl**: Server mit Ports, Grenzen, Variablen, Egg und allen Dateien
   übernehmen. Klappt auch, wenn Pterodactyl in einer VM auf demselben Rechner läuft.

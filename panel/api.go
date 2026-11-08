@@ -449,20 +449,21 @@ func (a *App) checkPorts(ports []int, except string) error {
 }
 
 type serverInput struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	EggID       string            `json:"egg"`
-	OwnerID     string            `json:"owner"`
-	Memory      int               `json:"memory"`
-	CPU         int               `json:"cpu"`
-	Disk        int               `json:"disk"`
-	Ports       []int             `json:"ports"`
-	Image       string            `json:"image"`
-	Env         map[string]string `json:"env"`
-	AutoRestart *bool             `json:"autoRestart"`
-	BootStart   *bool             `json:"bootStart"`
-	MaxBackups  *int              `json:"maxBackups"`
-	StartAfter  bool              `json:"startAfter"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	EggID        string            `json:"egg"`
+	OwnerID      string            `json:"owner"`
+	Memory       int               `json:"memory"`
+	CPU          int               `json:"cpu"`
+	Disk         int               `json:"disk"`
+	Ports        []int             `json:"ports"`
+	Image        string            `json:"image"`
+	Env          map[string]string `json:"env"`
+	AutoRestart  *bool             `json:"autoRestart"`
+	BootStart    *bool             `json:"bootStart"`
+	MaxBackups   *int              `json:"maxBackups"`
+	StartAfter   bool              `json:"startAfter"`
+	NoAutoDomain bool              `json:"noAutoDomain"`
 }
 
 func (a *App) serverCreate(w http.ResponseWriter, r *http.Request) {
@@ -537,6 +538,9 @@ func (a *App) serverCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	os.Chown(a.m.ServerDir(srv.ID), containerUID, containerUID)
 	a.st.Update(func(s *State) error { s.Servers = append(s.Servers, srv); return nil })
+	if !in.NoAutoDomain {
+		go a.applyAutoDomain(srv.ID)
+	}
 	inst := a.m.Get(srv.ID)
 	if err := inst.Install(); err != nil {
 		jsonErr(w, 500, err.Error())

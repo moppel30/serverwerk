@@ -95,6 +95,7 @@ type Settings struct {
 	CFTarget    string           `json:"cfTarget"` // ip | host
 	CFHost      string           `json:"cfHost"`
 	Panel       *PanelPublic     `json:"panel,omitempty"`
+	AutoDomain  *AutoDomain      `json:"autoDomain,omitempty"`
 	Ports       string           `json:"ports"` // alt, wird in Allocations übernommen
 	Allocations []AllocGroup     `json:"allocations"`
 	Defaults    ServerDefaults   `json:"defaults"`
