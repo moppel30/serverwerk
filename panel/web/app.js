@@ -825,19 +825,63 @@ function tabFiles(c) {
     const n = await promptBox('Neue Datei', 'Name', 'neu.txt'); if (!n) return;
     openEditor(id, join(n), load, true);
   };
+  // Hochladen: kleine Dateien gebündelt (max. 64 MB pro Anfrage), große in 32-MB-Teilen.
+  // Cloudflare lässt pro Anfrage nur 100 MB durch.
   const upload = async files => {
     if (!files.length) return;
-    const fd = new FormData();
-    let total = 0;
-    for (const f of files) { fd.append('f', f, f.webkitRelativePath || f.relpath || f.name); total += f.size; }
+    const CH = 32 << 20, BATCH = 64 << 20;
+    const total = files.reduce((n, f) => n + f.size, 0) || 1;
+    const relOf = f => f.webkitRelativePath || f.relpath || f.name;
+    const wait = ms => new Promise(r => setTimeout(r, ms));
     const t = document.createElement('div'); t.className = 'toast'; $('#toasts').append(t);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/servers/${id}/files/upload?path=${encodeURIComponent(path)}`);
-    xhr.setRequestHeader('X-Serverwerk', '1');
-    xhr.upload.onprogress = e => { t.textContent = `Lädt hoch ... ${Math.round(e.loaded / (e.total || total) * 100)} %`; };
-    xhr.onload = () => { t.remove(); if (xhr.status < 300) { toast(`${files.length} Datei(en) hochgeladen`, 'good'); load(); } else fail(new Error(JSON.parse(xhr.responseText || '{}').error || 'Upload fehlgeschlagen')); };
-    xhr.onerror = () => { t.remove(); fail(new Error('Upload abgebrochen')); };
-    xhr.send(fd);
+    let done = 0;
+    const show = cur => { t.textContent = `${tt('Lädt hoch ...', 'Uploading ...')} ${Math.min(100, Math.floor((done + cur) / total * 100))} %`; };
+    show(0);
+    const send = (url, body, base) => new Promise((res, rej) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/servers/${id}/files/${url}`);
+      xhr.setRequestHeader('X-Serverwerk', '1');
+      xhr.upload.onprogress = e => show(base + e.loaded);
+      xhr.onload = () => { let j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch {} res({ status: xhr.status, json: j }); };
+      xhr.onerror = () => rej(new Error(tt('Verbindung abgebrochen', 'Connection lost')));
+      xhr.send(body);
+    });
+    // Bei Verbindungsfehlern und Serverfehlern bis zu 4-mal neu versuchen.
+    const retry = async fn => {
+      for (let i = 1; ; i++) {
+        try { const r = await fn(); if (r.status < 500 || i > 4) return r; } catch (e) { if (i > 4) throw e; }
+        await wait(1000 * i);
+      }
+    };
+    const failed = r => new Error(r.json.error || (r.status === 413 ? tt('Datei zu groß für die Verbindung', 'File too large for the connection') : tt('Upload fehlgeschlagen', 'Upload failed') + ` (HTTP ${r.status})`));
+    try {
+      let batch = [], size = 0;
+      const flush = async () => {
+        if (!batch.length) return;
+        const r = await retry(() => { const fd = new FormData(); batch.forEach(f => fd.append('f', f, relOf(f))); return send(`upload?path=${encodeURIComponent(path)}`, fd, 0); });
+        if (r.status >= 300) throw failed(r);
+        done += size; batch = []; size = 0;
+      };
+      for (const f of files.filter(f => f.size <= CH)) {
+        if (size + f.size > BATCH) await flush();
+        batch.push(f); size += f.size;
+      }
+      await flush();
+      for (const f of files.filter(f => f.size > CH)) {
+        const uid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
+        const q = `path=${encodeURIComponent(join(relOf(f)))}&upload=${uid}&total=${f.size}`;
+        let off = 0;
+        while (off < f.size) {
+          const end = Math.min(off + CH, f.size), at = off;
+          const r = await retry(() => send(`chunk?${q}&offset=${at}`, f.slice(at, end), at));
+          if (r.status === 409 && typeof r.json.size === 'number') { off = r.json.size; continue; }
+          if (r.status >= 300) throw failed(r);
+          off = r.json.size;
+        }
+        done += f.size;
+      }
+      t.remove(); toast(tt(`${files.length} Datei(en) hochgeladen`, `${files.length} file(s) uploaded`), 'good'); load();
+    } catch (e) { t.remove(); fail(e); load(); }
   };
   $('#f-up').onclick = () => $('#f-input').click();
   $('#f-input').onchange = e => { upload([...e.target.files]); e.target.value = ''; };

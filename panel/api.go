@@ -73,6 +73,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	h("GET /api/servers/{id}/files/content", a.srv("files", a.fileRead))
 	h("PUT /api/servers/{id}/files/content", a.srv("files", a.fileWrite))
 	h("POST /api/servers/{id}/files/upload", a.srv("files", a.fileUpload))
+	h("POST /api/servers/{id}/files/chunk", a.srv("files", a.fileChunk))
 	h("GET /api/servers/{id}/files/download", a.srv("files", a.fileDownload))
 	h("POST /api/servers/{id}/files/rename", a.srv("files", a.fileRename))
 	h("POST /api/servers/{id}/files/delete", a.srv("files", a.fileDelete))
