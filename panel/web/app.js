@@ -1727,7 +1727,7 @@ function serverAddr(s) {
     const fq = !s.domain.prefix || s.domain.prefix === '@' ? s.domain.zoneName : s.domain.prefix + '.' + s.domain.zoneName;
     return s.domain.srv ? fq : `${fq}:${s.ports?.[0] ?? ''}`;
   }
-  return `${s.alias || host}:${s.ports?.[0] ?? '–'}`;
+  return `${s.alias || S.me?.addrHost || host}:${s.ports?.[0] ?? '–'}`;
 }
 
 /* ---------- Import aus Pterodactyl ---------- */
