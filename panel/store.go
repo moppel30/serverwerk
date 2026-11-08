@@ -83,6 +83,8 @@ type State struct {
 	Eggs     []*Egg              `json:"eggs"`
 	Servers  []*Server           `json:"servers"`
 	Settings Settings            `json:"settings"`
+	// DNS-Einträge, deren Löschen fehlgeschlagen ist (wird stündlich neu versucht)
+	DNSCleanup []DNSJob `json:"dnsCleanup,omitempty"`
 }
 
 type Settings struct {

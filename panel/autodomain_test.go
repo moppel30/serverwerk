@@ -23,11 +23,17 @@ type fakeCF struct {
 	sync.Mutex
 	recs []cfRecord
 	n    int
+	down bool
 }
 
 func (f *fakeCF) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.Lock()
 	defer f.Unlock()
+	if f.down {
+		w.WriteHeader(502)
+		w.Write([]byte(`{"success":false,"errors":[{"code":1,"message":"down"}]}`))
+		return
+	}
 	out := func(v any) {
 		b, _ := json.Marshal(v)
 		json.NewEncoder(w).Encode(map[string]any{"success": true, "errors": []any{}, "result": json.RawMessage(b)})

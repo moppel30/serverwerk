@@ -111,6 +111,8 @@ type cfRecord struct {
 	Proxied *bool          `json:"proxied,omitempty"`
 	TTL     int            `json:"ttl"`
 	Comment string         `json:"comment"`
+	// nur beim Lesen gefüllt
+	Modified string `json:"modified_on,omitempty"`
 }
 
 func cfFind(token, zone, typ, name string) ([]cfRecord, error) {
@@ -149,15 +151,20 @@ func cfUpsert(token, zone string, rec cfRecord) error {
 	return cfCall(token, "POST", "/zones/"+zone+"/dns_records", rec, nil)
 }
 
-// cfDeleteOwn löscht alle Einträge mit unserem Kommentar für diesen Server.
-func cfDeleteOwn(token, zone, comment string) error {
-	var rs []cfRecord
-	if err := cfCall(token, "GET", "/zones/"+zone+"/dns_records?per_page=100&comment="+url.QueryEscape(comment), nil, &rs); err != nil {
-		return err
-	}
-	for _, r := range rs {
-		if r.Comment == comment {
-			cfCall(token, "DELETE", "/zones/"+zone+"/dns_records/"+r.ID, nil, nil)
+// cfDeleteOwn löscht unter den angegebenen Namen alle Einträge mit unserem Kommentar.
+// Gesucht wird über den Namen (exakt), nicht über einen Kommentar-Filter.
+func cfDeleteOwn(token, zone, comment string, names ...string) error {
+	for _, n := range names {
+		var rs []cfRecord
+		if err := cfCall(token, "GET", "/zones/"+zone+"/dns_records?per_page=100&name="+url.QueryEscape(n), nil, &rs); err != nil {
+			return err
+		}
+		for _, r := range rs {
+			if r.Comment == comment && r.Name == n {
+				if err := cfCall(token, "DELETE", "/zones/"+zone+"/dns_records/"+r.ID, nil, nil); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -251,16 +258,30 @@ func (a *App) syncDomain(s *Server) error {
 	return nil
 }
 
+func domainNames(d *Domain) []string {
+	fq := d.FQDN()
+	return []string{fq, "_minecraft._tcp." + fq}
+}
+
+// removeDomain löscht die Einträge eines Servers. Klappt das nicht (Cloudflare
+// nicht erreichbar), kommt es in die Warteschlange und wird stündlich neu versucht.
 func (a *App) removeDomain(s *Server) error {
 	if s.Domain == nil || s.Domain.ZoneID == "" {
 		return nil
 	}
 	var token string
 	a.st.Read(func(st *State) { token = st.Settings.CFToken })
+	job := DNSJob{ZoneID: s.Domain.ZoneID, Comment: "serverwerk:" + s.ID, ServerID: s.ID, Names: domainNames(s.Domain)}
 	if token == "" {
+		a.queueDNS(job)
 		return nil
 	}
-	return cfDeleteOwn(token, s.Domain.ZoneID, "serverwerk:"+s.ID)
+	err := cfDeleteOwn(token, job.ZoneID, job.Comment, job.Names...)
+	if err != nil {
+		log.Printf("DNS löschen %s: %v (wird später neu versucht)", s.Domain.FQDN(), err)
+		a.queueDNS(job)
+	}
+	return err
 }
 
 // dnsLoop hält die A-Einträge aktuell, wenn sich die öffentliche IP ändert (DynDNS).

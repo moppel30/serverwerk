@@ -198,7 +198,7 @@ func (a *App) panelPublish(w http.ResponseWriter, r *http.Request) {
 	}
 	// Alter Name weg, falls umbenannt.
 	if old != nil && old.FQDN() != fq && old.ZoneID != "" {
-		cfDeleteOwn(tok, old.ZoneID, "serverwerk:panel")
+		a.deleteOrQueue(tok, DNSJob{ZoneID: old.ZoneID, Comment: "serverwerk:panel", Names: []string{old.FQDN()}})
 	}
 	t := true
 	rec := cfRecord{Type: "CNAME", Name: fq, Content: pp.TunnelID + ".cfargotunnel.com", Proxied: &t, TTL: 1, Comment: "serverwerk:panel"}
@@ -220,7 +220,7 @@ func (a *App) unpublish(tok string, pp *PanelPublic) {
 		return
 	}
 	if pp.ZoneID != "" {
-		cfDeleteOwn(tok, pp.ZoneID, "serverwerk:panel")
+		a.deleteOrQueue(tok, DNSJob{ZoneID: pp.ZoneID, Comment: "serverwerk:panel", Names: []string{pp.FQDN()}})
 	}
 	if pp.AccountID != "" && pp.TunnelID != "" {
 		base := "/accounts/" + pp.AccountID + "/cfd_tunnel/" + pp.TunnelID

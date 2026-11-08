@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.11.3"
+var version = "0.11.4"
 
 //go:embed web
 var webFS embed.FS
@@ -107,6 +107,7 @@ func main() {
 	}()
 	go app.scheduleLoop()
 	go app.dnsLoop()
+	go app.dnsCleanupLoop()
 	app.watchSignals()
 
 	mux := http.NewServeMux()
