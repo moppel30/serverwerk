@@ -78,7 +78,7 @@ func (a *App) applyAutoDomain(id string) {
 		if ad.Sub != "" {
 			p += "." + ad.Sub
 		}
-		nd := &Domain{ZoneID: ad.ZoneID, ZoneName: ad.ZoneName, Prefix: p, SRV: a.isMinecraftJava(s)}
+		nd := &Domain{ZoneID: ad.ZoneID, ZoneName: ad.ZoneName, Prefix: p, SRV: a.isMinecraftJava(s), Auto: true}
 		if taken[nd.FQDN()] {
 			continue
 		}
@@ -110,6 +110,57 @@ func (a *App) applyAutoDomain(id string) {
 	}
 	if lastErr != nil {
 		log.Printf("Automatische Adresse für %s: %v", s.Name, lastErr)
+	}
+}
+
+func (d *AutoDomain) Base() string {
+	if d.Sub == "" {
+		return d.ZoneName
+	}
+	return d.Sub + "." + d.ZoneName
+}
+
+// isAutoDomain erkennt automatisch vergebene Adressen, auch aus 0.11.0
+// (damals noch ohne Auto-Markierung): ein Name direkt vor der alten Basis.
+func isAutoDomain(d *Domain, old *AutoDomain) bool {
+	if d == nil {
+		return false
+	}
+	if d.Auto {
+		return true
+	}
+	if old == nil || old.Sub == "" || d.ZoneID != old.ZoneID {
+		return false
+	}
+	name, ok := strings.CutSuffix(d.Prefix, "."+old.Sub)
+	return ok && name != "" && !strings.Contains(name, ".")
+}
+
+// moveAutoDomains löscht automatische Adressen, die nicht zur neuen Basis passen,
+// damit applyAutoDomainsAll sie neu vergibt.
+func (a *App) moveAutoDomains(old, now *AutoDomain) {
+	var list []*Server
+	a.st.Read(func(st *State) {
+		for _, s := range st.Servers {
+			if isAutoDomain(s.Domain, old) {
+				d := s.Domain
+				if d.ZoneID == now.ZoneID && strings.HasSuffix(d.FQDN(), "."+now.Base()) && !strings.Contains(strings.TrimSuffix(d.FQDN(), "."+now.Base()), ".") {
+					continue // passt schon
+				}
+				list = append(list, cloneServer(s))
+			}
+		}
+	})
+	for _, s := range list {
+		if err := a.removeDomain(s); err != nil {
+			log.Printf("Alte Adresse %s: %v", s.Domain.FQDN(), err)
+		}
+		a.st.Update(func(st *State) error {
+			if x := findServer(st, s.ID); x != nil && x.Domain != nil && x.Domain.FQDN() == s.Domain.FQDN() {
+				x.Domain = nil
+			}
+			return nil
+		})
 	}
 }
 

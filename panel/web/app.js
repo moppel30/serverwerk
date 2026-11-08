@@ -419,7 +419,7 @@ async function pageServers(page) {
         <div class="row">${thumb(eggIcon(s.egg), s.eggName || s.name, 'sq')}
           <div class="grow" style="min-width:0"><h3 class="ell notr">${esc(s.name)}</h3><div class="meta"><span class="ell">${esc(s.eggName || 'Egg fehlt')}</span></div></div>
           <span class="status ${cls}">${txt}</span></div>
-        <div class="row"><span class="addr" data-copy="${esc(serverAddr(s))}">${esc(serverAddr(s))}</span></div>
+        <div class="row"><span class="addr" data-copy="${esc(serverAddr(s))}" title="${esc(serverAddr(s))}"><span class="ell">${esc(serverAddr(s))}</span></span></div>
         <div class="bars">${cardStats(s)}</div></a>`;
     }).join('');
     $$('[data-copy]', el).forEach(b => b.onclick = e => { e.preventDefault(); copy(b.dataset.copy); });
@@ -451,7 +451,7 @@ async function pageServer(page, id, tab) {
       ${thumb(eggIcon(s.egg), s.eggName || s.name, 'sq big')}
       <div class="grow" style="min-width:0"><h1 class="ell notr">${esc(s.name)}</h1>
         <div class="row wrap" style="margin-top:6px;gap:8px"><span class="status" id="st"></span><span class="faint" id="upt"></span>
-          <span class="tag">${esc(s.eggName)}</span><span class="addr" id="addr" title="Adresse kopieren">${I('copy', 'xs')}${esc(serverAddr(s))}</span></div></div>
+          <span class="tag">${esc(s.eggName)}</span><span class="addr" id="addr" title="${esc(serverAddr(s))}">${I('copy', 'xs')}<span class="ell">${esc(serverAddr(s))}</span></span></div></div>
       ${has('power') ? `<div class="pgroup">
         <button class="btn primary" id="pmain"></button>
         <button class="ib ring" data-p="restart" title="Neustarten">${I('restart')}</button>
@@ -1689,27 +1689,29 @@ async function pageSettings(page, sec = 'allgemein') {
     if (!d.cfConnected) return;
     const ad = d.autoDomain, zones = d.cfZones || [];
     const p = d.panel && d.panel.prefix !== '@' ? d.panel : null;
-    const sub = ad ? ad.sub : (p ? p.prefix : 'play');
+    const sub = ad?.sub || (p ? p.prefix : 'play'), flat = ad ? !ad.sub : false;
     const zoneId = ad ? ad.zoneId : (d.panel?.zoneId || zones[0]?.id);
     $('#auto-tag').innerHTML = ad ? `<span class="tag acc">${tt('an', 'on')}</span>` : '';
     box.innerHTML = `<p class="muted" style="margin:0">${tt('Jeder Server bekommt automatisch eine eigene Adresse aus seinem Namen, z. B. <span class="mono">survival.panel.example.com</span>. Bei Minecraft Java ganz ohne Port, bei anderen Spielen mit Port dahinter. Die Adressen zeigen auf deinen Anschluss und werden angepasst, wenn sich die öffentliche IP ändert.', 'Every server automatically gets its own address from its name, e.g. <span class="mono">survival.panel.example.com</span>. For Minecraft Java with no port at all, for other games with the port appended. The addresses point to your connection and are updated when your public IP changes.')}</p>
       <label class="check"><input type="checkbox" id="au-on" ${ad ? 'checked' : ''}>${tt('Automatische Adressen für alle Server', 'Automatic addresses for all servers')}</label>
-      <div class="row wrap" style="gap:8px;align-items:center">
-        <span class="mono muted">${tt('name', 'name')}.</span>
-        <input class="input mono" id="au-sub" value="${esc(sub)}" placeholder="panel" style="max-width:180px">
-        <span class="mono muted">.</span>
-        <select class="input" id="au-zone" style="max-width:240px">${zones.map(z => `<option value="${z.id}" ${z.id === zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select></div>
-      <div class="mono faint notr" id="au-ex" style="font-size:13px"></div>
-      <div class="banner" style="margin:0"><span class="grow" style="font-size:13px">${tt('Die Ports der Server müssen im Router an diesen Rechner weitergeleitet sein. Beim Einschalten bekommen auch alle bestehenden Server ohne Domain eine Adresse. Mittleres Feld leer lassen = direkt unter der Domain.', 'The ports of the servers must be forwarded to this machine in your router. When you turn this on, all existing servers without a domain get an address too. Leave the middle field empty = directly under the domain.')}</span></div>
+      <div class="f"><span>${tt('Domain', 'Domain')}</span><select class="input" id="au-zone" style="max-width:280px">${zones.map(z => `<option value="${z.id}" ${z.id === zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select></div>
+      <div class="f"><span>${tt('Aufbau der Adressen', 'Address format')}</span>
+        <label class="radio"><input type="radio" name="au-m" value="sub" ${!flat ? 'checked' : ''}><span><b class="mono notr" data-ex="sub"></b><small>${tt('Unter einer eigenen Subdomain. Kommt nicht mit Namen in die Quere, die du auf der Domain schon vergeben hast.', 'Under a subdomain of its own. Does not get in the way of names you already use on the domain.')}</small>
+          <div class="row" style="gap:8px;align-items:center;margin-top:8px"><span class="mono muted">name.</span><input class="input mono" id="au-sub" value="${esc(sub)}" placeholder="panel" style="max-width:180px"><span class="mono muted notr" data-z></span></div></span></label>
+        <label class="radio"><input type="radio" name="au-m" value="flat" ${flat ? 'checked' : ''}><span><b class="mono notr" data-ex="flat"></b><small>${tt('Direkt unter der Domain, kürzer. Ist ein Name dort schon vergeben (z. B. www), bekommt der Server eine Zahl dahinter.', 'Directly under the domain, shorter. If a name is already taken there (e.g. www), the server gets a number appended.')}</small></span></label></div>
+      <div class="banner" style="margin:0"><span class="grow" style="font-size:13px">${tt('Die Ports der Server müssen im Router an diesen Rechner weitergeleitet sein. Beim Einschalten bekommen auch alle bestehenden Server ohne Domain eine Adresse. Beim Wechsel des Aufbaus ziehen automatisch vergebene Adressen mit um.', 'The ports of the servers must be forwarded to this machine in your router. When you turn this on, all existing servers without a domain get an address too. When you change the format, automatically assigned addresses move along.')}</span></div>
       <div><button class="btn primary" id="au-save">${I('check')}${tt('Speichern', 'Save')}</button></div>`;
     const ex = () => {
       const z = zones.find(z => z.id === $('#au-zone').value)?.name || '';
-      const sb = $('#au-sub').value.trim().replace(/^\.+|\.+$/g, '').toLowerCase();
-      $('#au-ex').textContent = (tt('Beispiel: ', 'Example: ')) + ['survival', sb, z].filter(Boolean).join('.');
+      const sb = $('#au-sub').value.trim().replace(/^\.+|\.+$/g, '').toLowerCase() || 'panel';
+      $('[data-ex=sub]', box).textContent = `survival.${sb}.${z}`;
+      $('[data-ex=flat]', box).textContent = `survival.${z}`;
+      $('[data-z]', box).textContent = '.' + z;
     };
     ex();
     $('#au-sub').oninput = ex; $('#au-zone').onchange = ex;
-    $('#au-save').onclick = () => api('PUT', '/settings', { autoDomain: { enabled: $('#au-on').checked, zoneId: $('#au-zone').value, sub: $('#au-sub').value } })
+    $('#au-sub').onfocus = () => { $('input[name=au-m][value=sub]', box).checked = true; };
+    $('#au-save').onclick = () => api('PUT', '/settings', { autoDomain: { enabled: $('#au-on').checked, zoneId: $('#au-zone').value, sub: $('input[name=au-m]:checked', box).value === 'flat' ? '' : ($('#au-sub').value.trim() || 'panel') } })
       .then(r => { toast($('#au-on').checked ? tt('Gespeichert, Adressen werden angelegt', 'Saved, addresses are being created') : tt('Gespeichert', 'Saved'), 'good'); drawCF(r); }).catch(fail);
   };
 

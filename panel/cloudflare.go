@@ -25,6 +25,7 @@ type Domain struct {
 	Prefix   string `json:"prefix"`
 	SRV      bool   `json:"srv"`
 	Status   string `json:"status"`
+	Auto     bool   `json:"auto,omitempty"` // automatisch vergeben (Einstellungen › Automatische Adressen)
 }
 
 func (d *Domain) FQDN() string {
@@ -405,7 +406,13 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		}
 		in.CFHost = &h
 	}
-	var auto *AutoDomain
+	var auto, oldAuto *AutoDomain
+	a.st.Read(func(st *State) {
+		if st.Settings.AutoDomain != nil {
+			c := *st.Settings.AutoDomain
+			oldAuto = &c
+		}
+	})
 	if x := in.AutoDomain; x != nil && x.Enabled {
 		sub := strings.Trim(strings.ToLower(strings.TrimSpace(x.Sub)), ".")
 		if sub != "" && (sub == "@" || !prefixRe.MatchString(sub)) {
@@ -477,7 +484,12 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		go a.syncAllDomains()
 	}
 	if auto != nil {
-		go a.applyAutoDomainsAll()
+		go func() {
+			if oldAuto == nil || *oldAuto != *auto {
+				a.moveAutoDomains(oldAuto, auto)
+			}
+			a.applyAutoDomainsAll()
+		}()
 	}
 	a.settingsGet(w, r)
 }

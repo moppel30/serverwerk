@@ -120,3 +120,49 @@ func TestAutoDomain(t *testing.T) {
 		t.Fatalf("Einträge:\n%s\nerwartet:\n%s", strings.Join(names, ","), want)
 	}
 }
+
+func TestAutoDomainMove(t *testing.T) {
+	cf := &fakeCF{}
+	ts := httptest.NewServer(cf)
+	defer ts.Close()
+	cfBase = ts.URL
+	publicIP.ip, publicIP.at = "203.0.113.7", time.Now()
+	dir := t.TempDir()
+	st, _ := openStore(dir)
+	old := &AutoDomain{ZoneID: "z1", ZoneName: "example.com", Sub: "panel"}
+	st.S.Settings.CFToken = "tok"
+	st.S.Settings.AutoDomain = old
+	st.S.Eggs = []*Egg{{ID: "paper", Name: "Paper"}}
+	st.S.Servers = []*Server{
+		// aus 0.11.0, noch ohne Auto-Markierung
+		{ID: "s1", Name: "Proxy", EggID: "paper", Ports: []int{25577}, Domain: &Domain{ZoneID: "z1", ZoneName: "example.com", Prefix: "proxy.panel", SRV: true}},
+		// von Hand vergeben, muss bleiben
+		{ID: "s2", Name: "Lobby", EggID: "paper", Ports: []int{25565}, Domain: &Domain{ZoneID: "z1", ZoneName: "example.com", Prefix: "mc", SRV: true}},
+	}
+	a := &App{st: st, data: dir}
+	a.m = newManager(st, nil, dir)
+	syncAll := func() {
+		for _, s := range st.S.Servers {
+			a.syncDomain(s)
+		}
+	}
+	syncAll()
+	now := &AutoDomain{ZoneID: "z1", ZoneName: "example.com"}
+	st.S.Settings.AutoDomain = now
+	a.moveAutoDomains(old, now)
+	a.applyAutoDomainsAll()
+	if d := st.S.Servers[0].Domain; d == nil || d.FQDN() != "proxy.example.com" || !d.Auto {
+		t.Fatalf("Proxy: %+v", d)
+	}
+	if d := st.S.Servers[1].Domain; d == nil || d.FQDN() != "mc.example.com" {
+		t.Fatalf("Lobby: %+v", d)
+	}
+	var names []string
+	for _, r := range cf.recs {
+		names = append(names, r.Type+" "+r.Name)
+	}
+	want := "A mc.example.com,SRV _minecraft._tcp.mc.example.com,A proxy.example.com,SRV _minecraft._tcp.proxy.example.com"
+	if strings.Join(names, ",") != want {
+		t.Fatalf("Einträge:\n%s\nerwartet:\n%s", strings.Join(names, ","), want)
+	}
+}
