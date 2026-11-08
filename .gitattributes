@@ -1,0 +1,7 @@
+# Skripte für Linux immer mit Unix-Zeilenenden
+*.sh text eol=lf
+*.go text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.py text eol=lf

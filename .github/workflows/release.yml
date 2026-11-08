@@ -1,0 +1,33 @@
+name: Release
+
+# Ein Tag wie v0.9.0 baut die Programme und veröffentlicht sie als Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: panel/go.mod
+      - name: Tests
+        run: cd panel && go test ./...
+      - name: Bauen
+        run: sh build.sh
+      - name: Version prüfen
+        run: |
+          v="$(cat dist/version.txt)"
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "panel/main.go hat Version $v, Tag ist ${GITHUB_REF_NAME}"; exit 1; }
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/install.sh dist/serverwerk-linux-amd64 dist/serverwerk-linux-arm64 \
+            --title "Serverwerk ${GITHUB_REF_NAME}" \
+            --notes "Installieren oder aktualisieren: \`curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sudo sh\`"

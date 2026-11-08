@@ -1,0 +1,4 @@
+dist/
+*.exe
+panel/serverwerk
+__pycache__/
