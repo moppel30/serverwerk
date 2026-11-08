@@ -308,12 +308,15 @@ func maskToken(t string) string {
 
 func (a *App) settingsGet(w http.ResponseWriter, r *http.Request) {
 	var set Settings
-	n := 0
+	n, auto := 0, 0
 	a.st.Read(func(st *State) {
 		set = st.Settings
 		for _, s := range st.Servers {
 			if s.Domain != nil && s.Domain.ZoneID != "" {
 				n++
+				if isAutoDomain(s.Domain, set.AutoDomain) {
+					auto++
+				}
 			}
 		}
 	})
@@ -321,7 +324,7 @@ func (a *App) settingsGet(w http.ResponseWriter, r *http.Request) {
 		"panelName": set.PanelName, "accent": set.Accent, "language": set.Language,
 		"cfConnected": set.CFToken != "", "cfToken": maskToken(set.CFToken), "cfZones": set.CFZones,
 		"cfTarget": firstNonEmpty(set.CFTarget, "ip"), "cfHost": set.CFHost, "domainServers": n,
-		"ports": set.Ports, "autoDomain": set.AutoDomain,
+		"ports": set.Ports, "autoDomain": set.AutoDomain, "autoServers": auto,
 		"defaults": set.Defaults, "security": set.Security,
 		"timezone": set.Timezone, "hostTimezone": hostTimezone(), "version": a.version,
 	}

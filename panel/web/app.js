@@ -1661,7 +1661,7 @@ async function pageSettings(page, sec = 'allgemein') {
       };
       return;
     }
-    const target = d.cfTarget === 'host' && d.cfHost ? `CNAME auf <span class="mono">${esc(d.cfHost)}</span>` : `öffentliche IP <span class="mono">${esc(d.publicIp || '?')}</span> (automatisch)`;
+    const target = d.cfTarget === 'host' && d.cfHost ? `CNAME auf <span class="mono">${esc(d.cfHost)}</span>` : tt(`öffentliche IP <span class="mono">${esc(d.publicIp || '?')}</span> (automatisch)`, `public IP <span class="mono">${esc(d.publicIp || '?')}</span> (automatic)`);
     if (!cfOpen) {
       cf.innerHTML = `<div class="row wrap" style="gap:6px">${(d.cfZones || []).map(z => `<span class="tag acc">${esc(z.name)}</span>`).join('')}</div>
         <div class="row wrap"><span class="muted grow" style="font-size:13.5px">Adressen zeigen auf ${target}. ${d.domainServers} Server mit Domain.</span><button class="btn" id="cf-open">${I('gear')}Konfigurieren</button></div>`;
@@ -1683,6 +1683,7 @@ async function pageSettings(page, sec = 'allgemein') {
   };
 
   // Jeder Server bekommt automatisch name.<basis>, z. B. survival.panel.example.com.
+  let autoOpen = false;
   const drawAuto = d => {
     const box = $('#auto'), card = $('#auto-panel');
     card.hidden = !d.cfConnected;
@@ -1692,6 +1693,13 @@ async function pageSettings(page, sec = 'allgemein') {
     const sub = ad?.sub || (p ? p.prefix : 'play'), flat = ad ? !ad.sub : false;
     const zoneId = ad ? ad.zoneId : (d.panel?.zoneId || zones[0]?.id);
     $('#auto-tag').innerHTML = ad ? `<span class="tag acc">${tt('an', 'on')}</span>` : '';
+    if (ad && !autoOpen) {
+      const n = (d.autoServers ?? null);
+      box.innerHTML = `<div class="row wrap"><span class="grow muted" style="font-size:13.5px;min-width:0">${tt('Neue Server bekommen', 'New servers get')} <span class="mono notr" style="color:var(--text)">${esc(['name', ad.sub, ad.zoneName].filter(Boolean).join('.'))}</span>${n !== null ? `. ${tt(`${n} Server mit automatischer Adresse.`, `${n} servers with an automatic address.`)}` : '.'}</span>
+        <button class="btn" id="au-open">${I('gear')}${tt('Konfigurieren', 'Configure')}</button></div>`;
+      $('#au-open').onclick = () => { autoOpen = true; drawAuto(d); };
+      return;
+    }
     box.innerHTML = `<p class="muted" style="margin:0">${tt('Jeder Server bekommt automatisch eine eigene Adresse aus seinem Namen, z. B. <span class="mono">survival.panel.example.com</span>. Bei Minecraft Java ganz ohne Port, bei anderen Spielen mit Port dahinter. Die Adressen zeigen auf deinen Anschluss und werden angepasst, wenn sich die öffentliche IP ändert.', 'Every server automatically gets its own address from its name, e.g. <span class="mono">survival.panel.example.com</span>. For Minecraft Java with no port at all, for other games with the port appended. The addresses point to your connection and are updated when your public IP changes.')}</p>
       <label class="check"><input type="checkbox" id="au-on" ${ad ? 'checked' : ''}>${tt('Automatische Adressen für alle Server', 'Automatic addresses for all servers')}</label>
       <div class="f"><span>${tt('Domain', 'Domain')}</span><select class="input" id="au-zone" style="max-width:280px">${zones.map(z => `<option value="${z.id}" ${z.id === zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select></div>
@@ -1700,7 +1708,8 @@ async function pageSettings(page, sec = 'allgemein') {
           <div class="row" style="gap:8px;align-items:center;margin-top:8px"><span class="mono muted">name.</span><input class="input mono" id="au-sub" value="${esc(sub)}" placeholder="panel" style="max-width:180px"><span class="mono muted notr" data-z></span></div></span></label>
         <label class="radio"><input type="radio" name="au-m" value="flat" ${flat ? 'checked' : ''}><span><b class="mono notr" data-ex="flat"></b><small>${tt('Direkt unter der Domain, kürzer. Ist ein Name dort schon vergeben (z. B. www), bekommt der Server eine Zahl dahinter.', 'Directly under the domain, shorter. If a name is already taken there (e.g. www), the server gets a number appended.')}</small></span></label></div>
       <div class="banner" style="margin:0"><span class="grow" style="font-size:13px">${tt('Die Ports der Server müssen im Router an diesen Rechner weitergeleitet sein. Beim Einschalten bekommen auch alle bestehenden Server ohne Domain eine Adresse. Beim Wechsel des Aufbaus ziehen automatisch vergebene Adressen mit um.', 'The ports of the servers must be forwarded to this machine in your router. When you turn this on, all existing servers without a domain get an address too. When you change the format, automatically assigned addresses move along.')}</span></div>
-      <div><button class="btn primary" id="au-save">${I('check')}${tt('Speichern', 'Save')}</button></div>`;
+      <div class="row wrap"><button class="btn primary" id="au-save">${I('check')}${tt('Speichern', 'Save')}</button>${ad ? `<button class="btn ghost" id="au-close">${tt('Abbrechen', 'Cancel')}</button>` : ''}</div>`;
+    const cl = $('#au-close'); if (cl) cl.onclick = () => { autoOpen = false; drawAuto(d); };
     const ex = () => {
       const z = zones.find(z => z.id === $('#au-zone').value)?.name || '';
       const sb = $('#au-sub').value.trim().replace(/^\.+|\.+$/g, '').toLowerCase() || 'panel';
@@ -1712,7 +1721,7 @@ async function pageSettings(page, sec = 'allgemein') {
     $('#au-sub').oninput = ex; $('#au-zone').onchange = ex;
     $('#au-sub').onfocus = () => { $('input[name=au-m][value=sub]', box).checked = true; };
     $('#au-save').onclick = () => api('PUT', '/settings', { autoDomain: { enabled: $('#au-on').checked, zoneId: $('#au-zone').value, sub: $('input[name=au-m]:checked', box).value === 'flat' ? '' : ($('#au-sub').value.trim() || 'panel') } })
-      .then(r => { toast($('#au-on').checked ? tt('Gespeichert, Adressen werden angelegt', 'Saved, addresses are being created') : tt('Gespeichert', 'Saved'), 'good'); drawCF(r); }).catch(fail);
+      .then(r => { toast($('#au-on').checked ? tt('Gespeichert, Adressen werden angelegt', 'Saved, addresses are being created') : tt('Gespeichert', 'Saved'), 'good'); autoOpen = false; drawCF(r); }).catch(fail);
   };
 
   // Panel über eine Domain erreichbar machen (Cloudflare Tunnel).
