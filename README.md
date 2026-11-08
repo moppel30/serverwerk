@@ -42,6 +42,7 @@ contains a one-time setup code, so nobody else on your network can get there fir
 - **Clean shutdown**: when the machine shuts down, all servers are saved and stopped with their own
   stop command, and they start again after boot. Updating the panel leaves running servers alone.
 - **English and German**, dark and light theme, free accent color, works on phones.
+- **Three looks**: Serverwerk, or a Pterodactyl or Pelican style, so it feels familiar when switching over. Only the look changes.
 
 ## Screenshots
 

@@ -218,7 +218,11 @@ func userView(u *User) map[string]any {
 func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	v := userView(u)
-	a.st.Read(func(s *State) { v["panelName"] = s.Settings.PanelName; v["accent"] = s.Settings.Accent })
+	a.st.Read(func(s *State) {
+		v["panelName"] = s.Settings.PanelName
+		v["accent"] = s.Settings.Accent
+		v["style"] = s.Settings.Style
+	})
 	v["lang"] = lang()
 	v["version"] = a.version
 	jsonOut(w, v)

@@ -44,6 +44,7 @@ Netz zuvorkommt.
   eigenen Stopp-Befehl gespeichert und beendet. Nach dem Hochfahren starten sie wieder.
   Ein Update des Panels lässt laufende Server in Ruhe.
 - **Deutsch und Englisch**, dunkles und helles Design, Akzentfarbe frei wählbar, läuft auch auf dem Handy.
+- **Drei Stile**: Serverwerk oder im Stil von Pterodactyl oder Pelican, damit beim Umstieg alles vertraut aussieht. Nur das Aussehen ändert sich.
 
 ## Screenshots
 

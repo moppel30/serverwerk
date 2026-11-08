@@ -252,8 +252,9 @@ window.addEventListener('hashchange', render);
 async function boot() {
   const st = await api('GET', '/setup', undefined, { noAuth: true }).catch(() => ({}));
   await initLang(st.lang);
+  applyStyle(st.style);
   try { S.me = await api('GET', '/me', undefined, { noAuth: true }); } catch { S.me = null; }
-  if (S.me) { applyAccent(S.me.accent); if (S.me.panelName) document.title = S.me.panelName; }
+  if (S.me) { applyAccent(S.me.accent); applyStyle(S.me.style); if (S.me.panelName) document.title = S.me.panelName; }
   else S.setup = st.needed;
   render();
 }
@@ -308,7 +309,7 @@ function renderSetup() {
       await api('POST', '/setup', { code: f.code.value, name: f.name.value, password: f.pw.value }, { noAuth: true });
       S.setup = false;
       S.me = await api('GET', '/me');
-      applyAccent(S.me.accent);
+      applyAccent(S.me.accent); applyStyle(S.me.style);
       history.replaceState(null, '', '#/allocations');
       root.innerHTML = '';
       render();
@@ -336,7 +337,7 @@ function renderLogin() {
     try {
       await api('POST', '/login', { name: f.name.value, password: f.pw.value }, { noAuth: true });
       S.me = await api('GET', '/me');
-      applyAccent(S.me.accent);
+      applyAccent(S.me.accent); applyStyle(S.me.style);
       root.innerHTML = '';
       render();
     } catch (err) { $('.err', f).textContent = err.message; }
@@ -1582,8 +1583,21 @@ function applyAccent(hex) {
   const [dr, dg, db] = [r, g, b].map(x => Math.round(x * k));
   const dark = `--accent:${hex};--accent-ink:${ink};--accent-soft:rgba(${r},${g},${b},.14);`;
   const light = `--accent:rgb(${dr},${dg},${db});--accent-ink:#fff;--accent-soft:rgba(${dr},${dg},${db},.12);`;
-  st.textContent = `:root{${dark}} :root[data-theme="dark"]{${dark}} @media (prefers-color-scheme: light){:root:not([data-theme="dark"]){${light}}} :root[data-theme="light"]{${light}}`;
+  const R = ':root:root:root', NP = ':not([data-style="pterodactyl"])';
+  st.textContent = `${R}{${dark}} @media (prefers-color-scheme: light){${R}${NP}:not([data-theme="dark"]){${light}}} ${R}${NP}[data-theme="light"]{${light}}`;
 }
+// Stil des ganzen Panels: Serverwerk (leer), Pterodactyl oder Pelican.
+function applyStyle(s) {
+  const r = document.documentElement;
+  if (s === 'pterodactyl' || s === 'pelican') r.dataset.style = s;
+  else r.removeAttribute('data-style');
+  try { localStorage.setItem('sw-style', r.dataset.style || ''); } catch { }
+}
+const STYLES = [
+  ['', 'Serverwerk', ['Dunkel und ruhig, Seitenleiste', 'Calm and dark, sidebar']],
+  ['pterodactyl', 'Pterodactyl', ['Blaugrau, Leiste oben, Server als Zeilen', 'Blue-gray, top bar, servers as rows']],
+  ['pelican', 'Pelican', ['Zink-Grau, blauer Akzent, Seitenleiste', 'Zinc gray, blue accent, sidebar']],
+];
 const ACCENTS = [['#d9c7a7', 'Sand'], ['#8fcf9a', 'Grün'], ['#76c7cf', 'Türkis'], ['#8ab4f8', 'Blau'], ['#b9a3f0', 'Violett'], ['#f0a6ca', 'Rosa'], ['#f2a65a', 'Orange'], ['#e5807a', 'Rot']];
 
 /* ---------- Einstellungen ---------- */
@@ -1592,6 +1606,7 @@ async function pageSettings(page, sec = 'allgemein') {
   const d = await api('GET', '/settings').catch(fail); if (!d) return;
   const theme = localStorage.getItem('sw-theme') || 'auto';
   let accent = d.accent || '';
+  let style = d.style || '';
   const SECS = [['allgemein', 'Allgemein', 'gear'], ['aussehen', 'Aussehen', 'sliders'], ['server', 'Neue Server', 'server'], ['sicherheit', 'Sicherheit', 'key'], ['cloudflare', 'Cloudflare & Domains', 'plug'], ['import', 'Import', 'download']];
   if (!SECS.find(x => x[0] === sec)) sec = 'allgemein';
   const df = d.defaults || {}, sc = d.security || {};
@@ -1611,6 +1626,9 @@ async function pageSettings(page, sec = 'allgemein') {
 
     <section data-sec="aussehen" class="stack">
       <div class="panel"><div class="ph"><h2>Aussehen</h2></div><div class="pb stack">
+        <div class="f"><span>${tt('Stil (für alle Benutzer)', 'Style (for all users)')}</span>
+          <div class="styles">${STYLES.map(([v, n, desc]) => `<button class="stl ${v === style ? 'on' : ''}" data-s="${v}"><span class="stl-p stl-${v || 'sw'}"><i></i><i></i><i></i><i></i></span><b>${n}</b><small>${tt(desc[0], desc[1])}</small></button>`).join('')}</div>
+          <small>${tt('Nur das Aussehen ändert sich, alle Funktionen bleiben gleich. Pterodactyl ist immer dunkel. Eine eigene Akzentfarbe gilt in jedem Stil.', 'Only the look changes, all features stay the same. Pterodactyl is always dark. A custom accent color applies in every style.')}</small></div>
         <div class="f"><span>Akzentfarbe (für alle Benutzer)</span>
           <div class="swatches">${ACCENTS.map(([c, n]) => `<button class="sw" data-c="${c}" style="--c:${c}" title="${n}"></button>`).join('')}
             <label class="sw custom" title="Eigene Farbe"><input type="color" id="s-col" value="${esc(accent || '#d9c7a7')}">${I('plus')}</label></div></div>
@@ -1667,13 +1685,19 @@ async function pageSettings(page, sec = 'allgemein') {
     if (r) { $('#se-days').value = r.security.sessionDays; $('#se-fails').value = r.security.maxFails; $('#se-lock').value = r.security.lockMinutes; }
   });
   if (sec === 'import') importView($('#imp'));
-  const markSw = () => $$('.sw[data-c]').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === (accent || '#d9c7a7').toLowerCase()));
+  // Ohne eigene Farbe gilt die Farbe des Stils; Sand ist nur im Serverwerk-Stil der Standard.
+  const markSw = () => $$('.sw[data-c]').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === (accent || (style ? '' : '#d9c7a7')).toLowerCase()));
   markSw();
-  $$('.sw[data-c]').forEach(b => b.onclick = () => { accent = b.dataset.c === '#d9c7a7' ? '' : b.dataset.c; applyAccent(accent); markSw(); });
+  $$('.sw[data-c]').forEach(b => b.onclick = () => { accent = b.dataset.c === '#d9c7a7' && !style ? '' : b.dataset.c; applyAccent(accent); markSw(); });
   $('#s-col').oninput = e => { accent = e.target.value; applyAccent(accent); markSw(); };
   $$('[data-t]').forEach(b => b.onclick = () => { setTheme(b.dataset.t); applyAccent(accent); $$('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
-  $('#s-save').onclick = () => api('PUT', '/settings', { accent }).then(r => {
-    S.me.accent = r.accent; toast('Gespeichert', 'good');
+  $$('.stl[data-s]').forEach(b => b.onclick = () => {
+    style = b.dataset.s; applyStyle(style);
+    $$('.stl[data-s]').forEach(x => x.classList.toggle('on', x === b));
+    markSw();
+  });
+  $('#s-save').onclick = () => api('PUT', '/settings', { accent, style }).then(r => {
+    S.me.accent = r.accent; S.me.style = r.style; toast('Gespeichert', 'good');
   }).catch(fail);
 
   const cf = $('#cf');
@@ -2012,5 +2036,6 @@ function setTheme(t) {
   else document.documentElement.dataset.theme = t;
 }
 try { setTheme(localStorage.getItem('sw-theme') || 'auto'); } catch { }
+try { applyStyle(localStorage.getItem('sw-style')); } catch { } // ohne Flackern bis /api/setup antwortet
 
 boot();

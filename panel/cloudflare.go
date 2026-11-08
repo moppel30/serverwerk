@@ -342,7 +342,7 @@ func (a *App) settingsGet(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	out := map[string]any{
-		"panelName": set.PanelName, "accent": set.Accent, "language": set.Language,
+		"panelName": set.PanelName, "accent": set.Accent, "style": set.Style, "language": set.Language,
 		"cfConnected": set.CFToken != "", "cfToken": maskToken(set.CFToken), "cfZones": set.CFZones,
 		"cfTarget": firstNonEmpty(set.CFTarget, "ip"), "cfHost": set.CFHost, "domainServers": n,
 		"ports": set.Ports, "autoDomain": set.AutoDomain, "autoServers": auto,
@@ -375,6 +375,7 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		PanelName  *string           `json:"panelName"`
 		Accent     *string           `json:"accent"`
+		Style      *string           `json:"style"`
 		CFToken    *string           `json:"cfToken"`
 		CFTarget   *string           `json:"cfTarget"`
 		CFHost     *string           `json:"cfHost"`
@@ -417,6 +418,10 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, 400, err.Error())
 			return
 		}
+	}
+	if in.Style != nil && *in.Style != "" && *in.Style != "pterodactyl" && *in.Style != "pelican" {
+		jsonErr(w, 400, "Unbekannter Stil")
+		return
 	}
 	if in.Accent != nil && *in.Accent != "" && !hexColor.MatchString(*in.Accent) {
 		jsonErr(w, 400, "Farbe im Format #rrggbb")
@@ -465,6 +470,9 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Accent != nil {
 			s.Accent = *in.Accent
+		}
+		if in.Style != nil {
+			s.Style = *in.Style
 		}
 		if in.Ports != nil {
 			s.Ports = strings.TrimSpace(*in.Ports)

@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.11.4"
+var version = "0.12.0"
 
 //go:embed web
 var webFS embed.FS
@@ -163,6 +163,7 @@ func staticHandler(web fs.FS) http.Handler {
 			s := string(b)
 			s = strings.ReplaceAll(s, "app.css\"", "app.css?v="+hashOf("app.css")+"\"")
 			s = strings.ReplaceAll(s, "app.js\"", "app.js?v="+hashOf("app.js")+"\"")
+			s = strings.ReplaceAll(s, "styles.css\"", "styles.css?v="+hashOf("styles.css")+"\"")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Write([]byte(s))

@@ -92,6 +92,7 @@ type Settings struct {
 	Language    string           `json:"language"` // de | en
 	Timezone    string           `json:"timezone"`
 	Accent      string           `json:"accent"`
+	Style       string           `json:"style"` // "" (Serverwerk) | pterodactyl | pelican
 	CFToken     string           `json:"cfToken"`
 	CFZones     []CFZone         `json:"cfZones"`
 	CFTarget    string           `json:"cfTarget"` // ip | host

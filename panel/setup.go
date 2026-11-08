@@ -43,7 +43,9 @@ func (a *App) setupNeeded() bool {
 }
 
 func (a *App) setupStatus(w http.ResponseWriter, r *http.Request) {
-	jsonOut(w, map[string]any{"needed": a.setupNeeded(), "lang": lang()})
+	var style string
+	a.st.Read(func(s *State) { style = s.Settings.Style })
+	jsonOut(w, map[string]any{"needed": a.setupNeeded(), "lang": lang(), "style": style})
 }
 
 func (a *App) setupCreate(w http.ResponseWriter, r *http.Request) {
