@@ -50,6 +50,8 @@ func ok(w http.ResponseWriter) { jsonOut(w, map[string]bool{"ok": true}) }
 func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", a.login)
 	mux.HandleFunc("POST /api/logout", a.logout)
+	mux.HandleFunc("GET /api/setup", a.setupStatus)
+	mux.HandleFunc("POST /api/setup", a.setupCreate)
 
 	api := http.NewServeMux()
 	h := func(p string, f http.HandlerFunc) { api.HandleFunc(p, f) }
@@ -177,6 +179,14 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 401, "Name oder Passwort falsch")
 		return
 	}
+	a.startSession(w, r, u)
+	jsonOut(w, userView(u))
+}
+
+// startSession meldet u an und setzt das Sitzungs-Cookie.
+func (a *App) startSession(w http.ResponseWriter, r *http.Request, u *User) {
+	var sec SecuritySettings
+	a.st.Read(func(s *State) { sec = s.Settings.Security })
 	tok := newID(32)
 	exp := time.Now().Add(time.Duration(max(sec.SessionDays, 1)) * 24 * time.Hour)
 	a.st.Update(func(s *State) error {
@@ -189,7 +199,6 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	http.SetCookie(w, &http.Cookie{Name: "sw_sitzung", Value: tok, Path: "/", Expires: exp, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"})
-	jsonOut(w, userView(u))
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {

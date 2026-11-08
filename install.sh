@@ -8,7 +8,7 @@
 set -eu
 
 QUELLE="${SERVERWERK_URL:-https://github.com/moppel30/serverwerk/releases/latest/download}"
-PORT="${SERVERWERK_PORT:-8200}"
+PORT="${SERVERWERK_PORT:-}"
 DATEN="/var/lib/serverwerk"
 BIN="/usr/local/bin/serverwerk"
 ENTFERNEN=0
@@ -75,6 +75,64 @@ if [ "$ENTFERNEN" = 1 ]; then
   info "Ganz löschen:  rm -rf $DATEN"
   exit 0
 fi
+
+# ---------- Port für die Weboberfläche ----------
+port_frei() { # port_frei PORT -> 0, wenn niemand darauf lauscht
+  p="$1"
+  if hat ss; then
+    ! ss -Htln 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$p\$"
+  elif hat netstat; then
+    ! netstat -tln 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$p\$"
+  else
+    hex="$(printf '%04X' "$p")"
+    ! cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4=="0A"{print $2}' | grep -qi ":$hex\$"
+  fi
+}
+alter_port() { # Port einer vorhandenen Installation
+  for f in /etc/systemd/system/serverwerk.service /etc/init.d/serverwerk /etc/sv/serverwerk/run; do
+    [ -f "$f" ] && sed -n 's/.*-addr :\([0-9][0-9]*\).*/\1/p' "$f" | head -n1 && return
+  done
+}
+gueltig() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+
+if [ -z "$PORT" ]; then
+  ALTPORT="$(alter_port || true)"
+  if [ -n "$ALTPORT" ]; then
+    PORT="$ALTPORT"
+    info "Weboberfläche bleibt auf Port $PORT"
+  else
+    FREI=""
+    for p in 8200 8080 8000 8888 9000 3000 8100 8300 8500 8800 10000; do
+      port_frei "$p" && FREI="$FREI $p"
+    done
+    FREI="$(echo $FREI)"
+    VORSCHLAG="${FREI%% *}"
+    [ -z "$VORSCHLAG" ] && VORSCHLAG=8200
+    # Auch bei "curl ... | sudo sh" fragen: direkt vom Terminal lesen.
+    if [ -z "${SERVERWERK_NONINTERACTIVE:-}" ] && (exec </dev/tty) 2>/dev/null; then
+      printf '  Freie Ports für die Weboberfläche: %s%s%s\n' "$A" "${FREI:-keiner der üblichen}" "$N"
+      n=0
+      while :; do
+        printf '  Welchen Port soll das Panel nutzen? [%s]: ' "$VORSCHLAG"
+        read -r ANTWORT </dev/tty || ANTWORT=""
+        ANTWORT="${ANTWORT:-$VORSCHLAG}"
+        if ! gueltig "$ANTWORT"; then
+          printf '  %sBitte eine Zahl von 1 bis 65535.%s\n' "$R" "$N"
+        elif ! port_frei "$ANTWORT"; then
+          printf '  %sPort %s ist schon belegt.%s\n' "$R" "$ANTWORT" "$N"
+        else
+          PORT="$ANTWORT"; break
+        fi
+        n=$((n+1)); [ $n -ge 5 ] && fehler "Kein gültiger Port gewählt."
+      done
+      printf '\n'
+    else
+      PORT="$VORSCHLAG"
+      info "Port $PORT gewählt (ändern: sh -s -- --port 9000)"
+    fi
+  fi
+fi
+gueltig "$PORT" || fehler "Ungültiger Port: $PORT"
 
 # ---------- Pakete ----------
 paket() {
@@ -252,9 +310,11 @@ IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src
 
 printf '\n  %sFertig.%s Serverwerk %s läuft.\n\n' "$A" "$N" "$NEU"
 printf '  Adresse:   %shttp://%s:%s%s\n' "$A" "$IP" "$PORT" "$N"
-if [ -f "$DATEN/erstes-passwort.txt" ] && [ -z "$ALT" ]; then
-  sed 's/^/  /' "$DATEN/erstes-passwort.txt"
-  printf '  %s(steht auch in %s/erstes-passwort.txt, bitte nach dem ersten Login ändern)%s\n' "$G" "$DATEN" "$N"
+if [ -f "$DATEN/einrichtung.txt" ]; then
+  CODE="$(tr -d ' \r\n' < "$DATEN/einrichtung.txt")"
+  printf '\n  Jetzt im Browser öffnen und dein Admin-Konto anlegen:\n'
+  printf '  %shttp://%s:%s/#/einrichten/%s%s\n' "$A" "$IP" "$PORT" "$CODE" "$N"
+  printf '  %s(Einrichtungs-Code: %s, gilt nur bis das erste Konto angelegt ist)%s\n' "$G" "$CODE" "$N"
 elif [ -n "$ALT" ]; then
   printf '  Update:    %s -> %s, Server und Daten bleiben erhalten\n' "$ALT" "$NEU"
 fi

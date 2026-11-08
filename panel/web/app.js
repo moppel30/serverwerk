@@ -191,13 +191,14 @@ window.addEventListener('hashchange', render);
 async function boot() {
   try { S.me = await api('GET', '/me', undefined, { noAuth: true }); } catch { S.me = null; }
   if (S.me) { applyAccent(S.me.accent); if (S.me.panelName) document.title = S.me.panelName; }
+  else S.setup = (await api('GET', '/setup', undefined, { noAuth: true }).catch(() => ({}))).needed;
   render();
 }
 
 function render() {
   cleanup();
   $$('.menu').forEach(m => m.remove());
-  if (!S.me) return renderLogin();
+  if (!S.me) return S.setup ? renderSetup() : renderLogin();
   const h = location.hash.replace(/^#\/?/, '');
   const parts = h.split('/').filter(Boolean);
   if (!$('.app')) layout();
@@ -217,6 +218,43 @@ function render() {
   if (nav === 'system' && a) return pageSystem(page);
   if (nav === 'konto') return pageAccount(page);
   page.innerHTML = `<div class="empty"><span class="term-label">$ cd /${esc(h)}</span>Diese Seite gibt es nicht.</div>`;
+}
+
+// Erste Einrichtung: Admin-Konto selbst anlegen (mit Code aus der Installation).
+function renderSetup() {
+  const m = location.hash.match(/^#\/?einrichten\/([A-Za-z0-9]+)/);
+  const code = m ? m[1] : '';
+  root.innerHTML = `<div class="gate">
+    <div class="brand-big"><h1>Server<em>werk</em></h1><p>$ einrichten</p></div>
+    <div class="card"><form>
+      <div><b style="font-size:16px">Willkommen</b><p class="muted" style="margin:4px 0 0;font-size:14px">Lege dein Admin-Konto an. Damit verwaltest du später alles.</p></div>
+      ${code ? `<input type="hidden" name="code" value="${esc(code)}">` : `<label class="f">Einrichtungs-Code<input class="input mono" name="code" required autocomplete="off"><small>Steht am Ende der Installation, oder auf dem Server mit: sudo cat /var/lib/serverwerk/einrichtung.txt</small></label>`}
+      <label class="f">Benutzername<input class="input" name="name" autocomplete="username" required minlength="2" maxlength="32" placeholder="z. B. admin"></label>
+      <label class="f">Passwort<input class="input" name="pw" type="password" autocomplete="new-password" required minlength="8"><small>mindestens 8 Zeichen</small></label>
+      <label class="f">Passwort wiederholen<input class="input" name="pw2" type="password" autocomplete="new-password" required minlength="8"></label>
+      <div class="err"></div>
+      <button class="btn primary big">Konto anlegen und loslegen</button>
+    </form></div></div>`;
+  const f = $('form');
+  setTimeout(() => (code ? f.name : f.code).focus(), 50);
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const err = $('.err', f);
+    if (f.pw.value !== f.pw2.value) { err.textContent = 'Die Passwörter sind nicht gleich.'; return; }
+    try {
+      await api('POST', '/setup', { code: f.code.value, name: f.name.value, password: f.pw.value }, { noAuth: true });
+      S.setup = false;
+      S.me = await api('GET', '/me');
+      applyAccent(S.me.accent);
+      history.replaceState(null, '', '#/allocations');
+      root.innerHTML = '';
+      render();
+      toast('Konto angelegt. Als Nächstes: Ports festlegen.', 'good');
+    } catch (ex) {
+      if (/schon eingerichtet/.test(ex.message)) { S.setup = false; render(); return; }
+      err.textContent = ex.message;
+    }
+  };
 }
 
 function renderLogin() {

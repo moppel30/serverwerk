@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.8.0"
+var version = "0.9.0"
 
 //go:embed web
 var webFS embed.FS
@@ -58,7 +58,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Zustand: %v", err)
 	}
-	ensureAdmin(st, *data)
+	ensureSetupCode(st, *data)
 
 	dk := newDocker()
 	app := &App{st: st, dk: dk, data: *data, version: version, cat: loadCatalog(*data), icons: newIconCache(*data), arch: loadArchCache(*data)}
@@ -164,21 +164,6 @@ func randomPassword() string {
 		out[i] = chars[int(raw[i])%len(chars)]
 	}
 	return string(out)
-}
-
-func ensureAdmin(st *Store, data string) {
-	n := 0
-	st.Read(func(s *State) { n = len(s.Users) })
-	if n > 0 {
-		return
-	}
-	pw := randomPassword()
-	u := &User{ID: newID(6), Name: "admin", Salt: newID(16), Admin: true, Created: time.Now()}
-	u.Hash = hashPassword(pw, u.Salt)
-	st.Update(func(s *State) error { s.Users = append(s.Users, u); return nil })
-	f := filepath.Join(data, "erstes-passwort.txt")
-	os.WriteFile(f, []byte("Benutzer: admin\nPasswort: "+pw+"\n"), 0600)
-	log.Printf("Erster Benutzer angelegt: admin / %s (steht auch in %s)", pw, f)
 }
 
 func resetPassword(data string, args []string) {

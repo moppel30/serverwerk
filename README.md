@@ -8,8 +8,10 @@ installiert mit **einem Befehl**. Jeder Server läuft in einem eigenen Docker-Co
 curl -fsSL https://github.com/moppel30/serverwerk/releases/latest/download/install.sh | sudo sh
 ```
 
-Danach ist das Panel unter `http://<ip-des-rechners>:8200` erreichbar. Benutzername und
-Startpasswort stehen am Ende der Ausgabe (und in `/var/lib/serverwerk/erstes-passwort.txt`).
+Der Installer prüft, welche Ports frei sind, und fragt, welchen das Panel nutzen soll
+(Vorschlag: 8200). Am Ende gibt er einen Link aus. Darüber legst du im Browser dein
+eigenes Admin-Konto an. Der Link enthält einen einmaligen Einrichtungs-Code, damit
+niemand anderes im Netz zuvorkommt.
 
 ## Was es kann
 
@@ -48,13 +50,13 @@ Startpasswort stehen am Ende der Ausgabe (und in `/var/lib/serverwerk/erstes-pas
 |---|---|
 | Installieren | `curl -fsSL https://github.com/moppel30/serverwerk/releases/latest/download/install.sh \| sudo sh` |
 | Aktualisieren | denselben Befehl erneut ausführen, Server und Daten bleiben erhalten |
-| Anderer Port | `curl -fsSL …/install.sh \| sudo sh -s -- --port 9000` |
+| Port vorgeben (ohne Nachfrage) | `curl -fsSL …/install.sh \| sudo sh -s -- --port 9000` |
 | Entfernen | `curl -fsSL …/install.sh \| sudo sh -s -- --entfernen` (Daten bleiben in `/var/lib/serverwerk`) |
 | Passwort vergessen | `sudo serverwerk passwort admin` |
 
 ## Erste Schritte
 
-1. Anmelden und unter **Einstellungen › Allgemein** das Passwort ändern (unten links › Konto).
+1. Den Link vom Ende der Installation öffnen und das Admin-Konto anlegen.
 2. Unter **Allocations** die Ports eintragen, die im Router freigegeben sind, z. B. `25565-25575`.
 3. Unter **Eggs › Katalog** ein Spiel holen, z. B. Paper für Minecraft.
 4. **Neuer Server** – Egg wählen, Namen eingeben, fertig. Die Installation läuft in der Konsole mit.
