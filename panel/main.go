@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.12.0"
+var version = "0.12.1"
 
 //go:embed web
 var webFS embed.FS

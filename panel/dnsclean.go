@@ -24,6 +24,23 @@ type DNSJob struct {
 	Since    time.Time `json:"since"`
 }
 
+// panelComment kennzeichnet den DNS-Eintrag des öffentlichen Panels dieser Installation.
+func (a *App) panelComment() string {
+	var id string
+	a.st.Read(func(st *State) { id = st.Settings.InstallID })
+	if id == "" {
+		id = newID(6)
+		a.st.Update(func(st *State) error {
+			if st.Settings.InstallID == "" {
+				st.Settings.InstallID = id
+			}
+			id = st.Settings.InstallID
+			return nil
+		})
+	}
+	return "serverwerk:panel:" + id
+}
+
 func (j DNSJob) same(x DNSJob) bool {
 	return x.ZoneID == j.ZoneID && x.Comment == j.Comment && strings.Join(x.Names, ",") == strings.Join(j.Names, ",")
 }
@@ -52,7 +69,7 @@ func (a *App) deleteOrQueue(token string, j DNSJob) {
 // liveNames sind Namen, die inzwischen wieder benutzt werden und nicht gelöscht werden dürfen.
 func liveNames(st *State, j DNSJob) map[string]bool {
 	live := map[string]bool{}
-	if j.Comment == "serverwerk:panel" {
+	if strings.HasPrefix(j.Comment, "serverwerk:panel") {
 		if p := st.Settings.Panel; p != nil && p.ZoneID == j.ZoneID {
 			live[p.FQDN()] = true
 		}
@@ -156,7 +173,7 @@ func (a *App) sweepDNS() {
 		}
 		for _, r := range recs {
 			id, ok := strings.CutPrefix(r.Comment, "serverwerk:")
-			if !ok || id == "panel" || !mine[id] {
+			if !ok || strings.HasPrefix(id, "panel") || !mine[id] {
 				continue // fremd, Panel oder unbekannte ID (vielleicht eine andere Installation)
 			}
 			// Gerade erst angelegt oder geändert: in Ruhe lassen (Vergabe läuft evtl. noch).

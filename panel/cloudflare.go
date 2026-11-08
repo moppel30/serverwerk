@@ -134,14 +134,14 @@ func cfUpsert(token, zone string, rec cfRecord) error {
 		}
 		rs, _ := cfFind(token, zone, other, rec.Name)
 		for _, r := range rs {
-			if r.Comment != rec.Comment {
+			if !ownComment(r.Comment, rec.Comment) {
 				return fmt.Errorf("%s gibt es in Cloudflare schon (%s-Eintrag, nicht von Serverwerk)", rec.Name, other)
 			}
 			cfCall(token, "DELETE", "/zones/"+zone+"/dns_records/"+r.ID, nil, nil)
 		}
 	}
 	for _, r := range existing {
-		if r.Comment == rec.Comment {
+		if ownComment(r.Comment, rec.Comment) {
 			return cfCall(token, "PUT", "/zones/"+zone+"/dns_records/"+r.ID, rec, nil)
 		}
 	}
@@ -149,6 +149,12 @@ func cfUpsert(token, zone string, rec cfRecord) error {
 		return fmt.Errorf("%s gibt es in Cloudflare schon (nicht von Serverwerk angelegt)", rec.Name)
 	}
 	return cfCall(token, "POST", "/zones/"+zone+"/dns_records", rec, nil)
+}
+
+// ownComment: Gehört ein Eintrag mit Kommentar have uns, wenn wir want erwarten?
+// Panel-Einträge vor 0.12.1 hießen nur "serverwerk:panel" (ohne Installations-ID).
+func ownComment(have, want string) bool {
+	return have == want || (strings.HasPrefix(want, "serverwerk:panel:") && have == "serverwerk:panel")
 }
 
 // cfDeleteOwn löscht unter den angegebenen Namen alle Einträge mit unserem Kommentar.
@@ -160,7 +166,7 @@ func cfDeleteOwn(token, zone, comment string, names ...string) error {
 			return err
 		}
 		for _, r := range rs {
-			if r.Comment == comment && r.Name == n {
+			if ownComment(r.Comment, comment) && r.Name == n {
 				if err := cfCall(token, "DELETE", "/zones/"+zone+"/dns_records/"+r.ID, nil, nil); err != nil {
 					return err
 				}

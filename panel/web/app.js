@@ -1634,7 +1634,7 @@ async function pageSettings(page, sec = 'allgemein') {
             <label class="sw custom" title="Eigene Farbe"><input type="color" id="s-col" value="${esc(accent || '#d9c7a7')}">${I('plus')}</label></div></div>
         <div class="f"><span>Design (nur für dich, in diesem Browser)</span><div class="chips">${['auto', 'dark', 'light'].map(t => `<button class="chip ${t === theme ? 'on' : ''}" data-t="${t}">${{ auto: 'Wie System', dark: 'Dunkel', light: 'Hell' }[t]}</button>`).join('')}</div></div>
         <div class="preview"><button class="btn primary small">Knopf</button><span class="tag acc">Markierung</span><a href="#/einstellungen" onclick="return false" style="color:var(--accent);font-size:14px">Link</a><span class="switch"><input type="checkbox" checked><i></i></span></div>
-        <div><button class="btn primary" id="s-save">${I('check')}Speichern</button></div>
+        <small class="faint" style="font-size:12.5px">${tt('Änderungen gelten sofort.', 'Changes apply right away.')}</small>
       </div></div>
     </section>
 
@@ -1688,17 +1688,19 @@ async function pageSettings(page, sec = 'allgemein') {
   // Ohne eigene Farbe gilt die Farbe des Stils; Sand ist nur im Serverwerk-Stil der Standard.
   const markSw = () => $$('.sw[data-c]').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === (accent || (style ? '' : '#d9c7a7')).toLowerCase()));
   markSw();
-  $$('.sw[data-c]').forEach(b => b.onclick = () => { accent = b.dataset.c === '#d9c7a7' && !style ? '' : b.dataset.c; applyAccent(accent); markSw(); });
+  // Stil und Farbe gelten sofort und werden gleich gespeichert (wie das Design).
+  const saveLook = () => api('PUT', '/settings', { accent, style }).then(r => {
+    S.me.accent = r.accent; S.me.style = r.style;
+  }).catch(fail);
+  $$('.sw[data-c]').forEach(b => b.onclick = () => { accent = b.dataset.c === '#d9c7a7' && !style ? '' : b.dataset.c; applyAccent(accent); markSw(); saveLook(); });
   $('#s-col').oninput = e => { accent = e.target.value; applyAccent(accent); markSw(); };
+  $('#s-col').onchange = saveLook;
   $$('[data-t]').forEach(b => b.onclick = () => { setTheme(b.dataset.t); applyAccent(accent); $$('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
   $$('.stl[data-s]').forEach(b => b.onclick = () => {
     style = b.dataset.s; applyStyle(style);
     $$('.stl[data-s]').forEach(x => x.classList.toggle('on', x === b));
-    markSw();
+    markSw(); saveLook();
   });
-  $('#s-save').onclick = () => api('PUT', '/settings', { accent, style }).then(r => {
-    S.me.accent = r.accent; S.me.style = r.style; toast('Gespeichert', 'good');
-  }).catch(fail);
 
   const cf = $('#cf');
   let cfOpen = false;
