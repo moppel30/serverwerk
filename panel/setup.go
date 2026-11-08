@@ -43,7 +43,7 @@ func (a *App) setupNeeded() bool {
 }
 
 func (a *App) setupStatus(w http.ResponseWriter, r *http.Request) {
-	jsonOut(w, map[string]bool{"needed": a.setupNeeded()})
+	jsonOut(w, map[string]any{"needed": a.setupNeeded(), "lang": lang()})
 }
 
 func (a *App) setupCreate(w http.ResponseWriter, r *http.Request) {

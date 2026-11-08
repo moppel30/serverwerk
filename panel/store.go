@@ -87,6 +87,7 @@ type State struct {
 
 type Settings struct {
 	PanelName   string           `json:"panelName"`
+	Language    string           `json:"language"` // de | en
 	Timezone    string           `json:"timezone"`
 	Accent      string           `json:"accent"`
 	CFToken     string           `json:"cfToken"`

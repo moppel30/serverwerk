@@ -36,6 +36,7 @@ func jsonOut(w http.ResponseWriter, v any) {
 }
 
 func jsonErr(w http.ResponseWriter, code int, msg string) {
+	msg = T(msg)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -217,6 +218,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	v := userView(u)
 	a.st.Read(func(s *State) { v["panelName"] = s.Settings.PanelName; v["accent"] = s.Settings.Accent })
+	v["lang"] = lang()
 	v["version"] = a.version
 	jsonOut(w, v)
 }
@@ -546,8 +548,11 @@ func (a *App) serverCreate(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(time.Second)
 				if s := a.st.Server(srv.ID); s == nil || s.Install == "failed" {
 					return
-				} else if s.Install == "ok" && inst.State() == StOffline {
-					inst.Start()
+				} else if s.Install == "ok" {
+					// Genau einmal: läuft er schon (z. B. über die EULA), nichts tun.
+					if inst.State() == StOffline {
+						inst.Start()
+					}
 					return
 				}
 			}

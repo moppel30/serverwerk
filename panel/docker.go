@@ -238,11 +238,17 @@ func (d *Docker) Inspect(ctx context.Context, id string) (*ContainerInspect, err
 }
 
 // Wait blockiert, bis der Container endet, und liefert den Exit-Code.
-func (d *Docker) Wait(ctx context.Context, id string) (int, error) {
+// cond "next-exit" wartet auf das nächste Ende (auch wenn der Container noch
+// gar nicht gestartet ist), "" = sofort zurück, wenn er gerade nicht läuft.
+func (d *Docker) Wait(ctx context.Context, id string, cond ...string) (int, error) {
 	var out struct {
 		StatusCode int `json:"StatusCode"`
 	}
-	err := d.call(ctx, "POST", "/containers/"+id+"/wait", nil, &out)
+	q := ""
+	if len(cond) > 0 && cond[0] != "" {
+		q = "?condition=" + cond[0]
+	}
+	err := d.call(ctx, "POST", "/containers/"+id+"/wait"+q, nil, &out)
 	return out.StatusCode, err
 }
 

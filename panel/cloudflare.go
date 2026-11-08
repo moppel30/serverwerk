@@ -315,7 +315,7 @@ func (a *App) settingsGet(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	out := map[string]any{
-		"panelName": set.PanelName, "accent": set.Accent,
+		"panelName": set.PanelName, "accent": set.Accent, "language": set.Language,
 		"cfConnected": set.CFToken != "", "cfToken": maskToken(set.CFToken), "cfZones": set.CFZones,
 		"cfTarget": firstNonEmpty(set.CFTarget, "ip"), "cfHost": set.CFHost, "domainServers": n,
 		"ports":    set.Ports,
@@ -353,6 +353,7 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		CFHost    *string           `json:"cfHost"`
 		Ports     *string           `json:"ports"`
 		Timezone  *string           `json:"timezone"`
+		Language  *string           `json:"language"`
 		Defaults  *ServerDefaults   `json:"defaults"`
 		Security  *SecuritySettings `json:"security"`
 	}
@@ -410,6 +411,10 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Timezone != nil {
 			s.Timezone = strings.TrimSpace(*in.Timezone)
+		}
+		if in.Language != nil && (*in.Language == "de" || *in.Language == "en") {
+			s.Language = *in.Language
+			setLang(s.Language)
 		}
 		if d := in.Defaults; d != nil {
 			d.Init = true

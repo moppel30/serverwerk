@@ -72,9 +72,10 @@ function bytes(n) {
 function dur(s) {
   if (!s) return '–';
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? `${d} T ${h} Std` : h ? `${h} Std ${m} Min` : m ? `${m} Min ${s % 60} s` : `${s} s`;
+  const [D, H, M] = I18N.lang === 'en' ? ['d', 'h', 'min'] : ['T', 'Std', 'Min'];
+  return d ? `${d} ${D} ${h} ${H}` : h ? `${h} ${H} ${m} ${M}` : m ? `${m} ${M} ${s % 60} s` : `${s} s`;
 }
-const when = t => t ? new Date(t).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '–';
+const when = t => t ? new Date(t).toLocaleString(I18N.lang === 'en' ? 'en-GB' : 'de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '–';
 const stateText = { offline: 'Aus', starting: 'Startet', running: 'Läuft', stopping: 'Stoppt', installing: 'Installiert' };
 const host = location.hostname;
 
@@ -181,6 +182,66 @@ function ansiHtml(line) {
   return out;
 }
 
+/* ---------- Sprache ----------
+   Die Oberfläche ist auf Deutsch geschrieben. Für Englisch übersetzt ein
+   Beobachter alle angezeigten Texte über i18n/en.json (dasselbe Wörterbuch
+   wie im Server). Benutzerinhalte (.notr, Konsole, Editor, Beschreibungen) bleiben. */
+const I18N = { lang: 'de', map: null, re: null, seen: new WeakMap(), attrs: new WeakMap() };
+const LETTER = /[A-Za-zÄÖÜäöüß]/;
+const NOTR = '.notr, .term, .editor, .prose, pre, code, textarea, script, style, .ini';
+const tt = (de, en) => I18N.lang === 'en' ? en : de;
+async function initLang(l) {
+  I18N.lang = l === 'en' ? 'en' : 'de';
+  document.documentElement.lang = I18N.lang;
+  if (I18N.lang !== 'en' || I18N.re) return;
+  try {
+    const m = await fetch('i18n/en.json', { cache: 'no-cache' }).then(r => r.json());
+    const keys = Object.keys(m).sort((a, b) => b.length - a.length);
+    I18N.map = m;
+    I18N.re = new RegExp(keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+    trWalk(document.body);
+    new MutationObserver(muts => {
+      for (const mu of muts) {
+        if (mu.type === 'characterData') trNode(mu.target);
+        else if (mu.type === 'attributes') trAttr(mu.target, mu.attributeName);
+        else mu.addedNodes.forEach(n => n.nodeType === 3 ? trNode(n) : n.nodeType === 1 && trWalk(n));
+      }
+    }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'title'] });
+  } catch { }
+}
+function tr(str) {
+  if (!I18N.re || !str) return str;
+  return str.replace(I18N.re, (m, off, all) => {
+    if ((LETTER.test(m[0]) && LETTER.test(all[off - 1] || '')) || (LETTER.test(m[m.length - 1]) && LETTER.test(all[off + m.length] || ''))) return m;
+    return I18N.map[m];
+  });
+}
+function trNode(n) {
+  if (I18N.seen.get(n) === n.nodeValue) return;
+  const el = n.parentElement;
+  if (!el || el.closest(NOTR)) return;
+  const v = tr(n.nodeValue);
+  if (v !== n.nodeValue) n.nodeValue = v;
+  I18N.seen.set(n, n.nodeValue);
+}
+function trAttr(el, a) {
+  if (!el.getAttribute || el.closest(NOTR + ', input.notr')) return;
+  const cur = el.getAttribute(a);
+  const done = I18N.attrs.get(el) || {};
+  if (cur == null || done[a] === cur) return;
+  const v = tr(cur);
+  done[a] = v; I18N.attrs.set(el, done);
+  if (v !== cur) el.setAttribute(a, v);
+}
+function trWalk(root) {
+  if (!I18N.re || !root) return;
+  if (root.nodeType === 1 && root.closest(NOTR)) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) trNode(n);
+  const els = root.querySelectorAll ? [root, ...root.querySelectorAll('[placeholder],[title]')] : [];
+  els.forEach(el => { if (el.hasAttribute?.('placeholder')) trAttr(el, 'placeholder'); if (el.hasAttribute?.('title')) trAttr(el, 'title'); });
+}
+
 /* ---------- Zustand & Routing ---------- */
 const S = { me: null, cleanup: [] };
 function cleanup() { S.cleanup.forEach(f => { try { f(); } catch { } }); S.cleanup = []; }
@@ -189,9 +250,11 @@ const go = h => { location.hash = h; };
 window.addEventListener('hashchange', render);
 
 async function boot() {
+  const st = await api('GET', '/setup', undefined, { noAuth: true }).catch(() => ({}));
+  await initLang(st.lang);
   try { S.me = await api('GET', '/me', undefined, { noAuth: true }); } catch { S.me = null; }
   if (S.me) { applyAccent(S.me.accent); if (S.me.panelName) document.title = S.me.panelName; }
-  else S.setup = (await api('GET', '/setup', undefined, { noAuth: true }).catch(() => ({}))).needed;
+  else S.setup = st.needed;
   render();
 }
 
@@ -286,7 +349,7 @@ function layout() {
     <aside class="side">
       <a class="brand" href="#/">Server<em>werk</em></a>
       <nav class="nav">
-        <a href="#/" data-nav="">${I('server')}<span>Server</span></a>
+        <a href="#/" data-nav="">${I('server')}<span>${tt('Server', 'Servers')}</span></a>
       </nav>
       ${a ? `<div class="nav-h">Verwaltung</div><nav class="nav">
         <a href="#/eggs" data-nav="eggs">${I('egg')}<span>Eggs</span></a>
@@ -296,7 +359,7 @@ function layout() {
         <a href="#/einstellungen" data-nav="einstellungen">${I('gear')}<span>Einstellungen</span></a>
       </nav>` : ''}
       <div class="side-foot">
-        <a href="#/konto" class="row grow" style="text-decoration:none;min-width:0"><span class="avatar">${esc(S.me.name[0])}</span><span class="who ell" style="font-size:14px">${esc(S.me.name)}</span></a>
+        <a href="#/konto" class="row grow" style="text-decoration:none;min-width:0"><span class="avatar">${esc(S.me.name[0])}</span><span class="who ell notr" style="font-size:14px">${esc(S.me.name)}</span></a>
         <button class="ib" id="logout" title="Abmelden">${I('logout')}</button>
       </div>
     </aside>
@@ -336,7 +399,7 @@ function stateOf(s) {
 }
 
 async function pageServers(page) {
-  page.innerHTML = `<div class="head"><div><h1>Server</h1><div class="sub term-label">$ ls /server</div></div>
+  page.innerHTML = `<div class="head"><div><h1>${tt('Server', 'Servers')}</h1><div class="sub term-label">$ ls /server</div></div>
     <div class="tools">${S.me.admin ? `<a class="btn primary" href="#/neu">${I('plus')}Neuer Server</a>` : ''}</div></div>
     <div id="portwarn"></div><div class="cards" id="cards"><div class="muted">Lädt ...</div></div>`;
   if (S.me.admin) api('GET', '/ports/free').then(p => {
@@ -346,7 +409,7 @@ async function pageServers(page) {
   const draw = list => {
     const el = $('#cards'); if (!el) return;
     if (!list.length) {
-      el.outerHTML = `<div class="empty" id="cards"><span class="term-label">$ ls /server<br>(leer)</span>${S.me.admin ? 'Noch keine Server. <a href="#/neu">Ersten Server anlegen</a> – vorher unter <a href="#/eggs/katalog">Eggs</a> ein Spiel holen.' : 'Dir wurde noch kein Server freigegeben.'}</div>`;
+      el.outerHTML = `<div class="empty" id="cards"><span class="term-label">$ ls /server<br>(leer)</span>${S.me.admin ? tt('Noch keine Server. <a href="#/neu">Ersten Server anlegen</a> – vorher unter <a href="#/eggs/katalog">Eggs</a> ein Spiel holen.', 'No servers yet. <a href="#/neu">Create your first server</a> – get a game under <a href="#/eggs/katalog">Eggs</a> first.') : 'Dir wurde noch kein Server freigegeben.'}</div>`;
       return;
     }
     el.className = 'cards';
@@ -354,7 +417,7 @@ async function pageServers(page) {
       const [cls, txt] = stateOf(s);
       return `<a class="scard" href="#/s/${s.id}">
         <div class="row">${thumb(eggIcon(s.egg), s.eggName || s.name, 'sq')}
-          <div class="grow" style="min-width:0"><h3 class="ell">${esc(s.name)}</h3><div class="meta"><span class="ell">${esc(s.eggName || 'Egg fehlt')}</span></div></div>
+          <div class="grow" style="min-width:0"><h3 class="ell notr">${esc(s.name)}</h3><div class="meta"><span class="ell">${esc(s.eggName || 'Egg fehlt')}</span></div></div>
           <span class="status ${cls}">${txt}</span></div>
         <div class="row"><span class="addr" data-copy="${esc(serverAddr(s))}">${esc(serverAddr(s))}</span></div>
         <div class="bars">${cardStats(s)}</div></a>`;
@@ -386,7 +449,7 @@ async function pageServer(page, id, tab) {
     <div class="shead">
       <a class="ib" href="#/" title="Zurück zur Übersicht">${I('back')}</a>
       ${thumb(eggIcon(s.egg), s.eggName || s.name, 'sq big')}
-      <div class="grow" style="min-width:0"><h1 class="ell">${esc(s.name)}</h1>
+      <div class="grow" style="min-width:0"><h1 class="ell notr">${esc(s.name)}</h1>
         <div class="row wrap" style="margin-top:6px;gap:8px"><span class="status" id="st"></span><span class="faint" id="upt"></span>
           <span class="tag">${esc(s.eggName)}</span><span class="addr" id="addr" title="Adresse kopieren">${I('copy', 'xs')}${esc(serverAddr(s))}</span></div></div>
       ${has('power') ? `<div class="pgroup">
@@ -419,7 +482,7 @@ async function pageServer(page, id, tab) {
   };
   const upt = () => {
     const e = $('#upt'); if (!e) return;
-    e.textContent = live.state === 'running' && live.stats?.uptime ? 'seit ' + dur(live.stats.uptime) : '';
+    e.textContent = live.state === 'running' && live.stats?.uptime ? tt('seit ', 'for ') + dur(live.stats.uptime) : '';
   };
   setState(s.state);
   $$('.pgroup [data-p], #pmain').forEach(b => b.onclick = async () => {
@@ -480,7 +543,7 @@ function tabConsole(c) {
       <div class="tile"><small>Netzwerk</small><b id="t-net">–</b><div class="faint" style="font-size:12px;margin-top:8px">seit Start</div></div>
     </div>
     <div class="term"><div class="term-out" id="out"></div>
-      ${has('console') ? `<form class="term-in" id="cmdf"><span>$</span><input id="cmd" placeholder="Befehl eingeben ..." autocomplete="off" spellcheck="false"><button class="ib" title="Senden">${I('send')}</button></form>` : ''}
+      ${has('console') ? `<form class="term-in" id="cmdf"><span>$</span><input id="cmd" placeholder="${tt('Befehl eingeben ...', 'Enter a command ...')}" autocomplete="off" spellcheck="false"><button class="ib" title="Senden">${I('send')}</button></form>` : ''}
     </div>`;
   const out = $('#out');
   const near = () => out.scrollHeight - out.scrollTop - out.clientHeight < 60;
@@ -521,7 +584,7 @@ function tabConsole(c) {
     $('#t-mem').innerHTML = on ? `${bytes(st.mem)}<span> / ${s.memory ? bytes(s.memory * 1048576) : 'unbegrenzt'}</span>` : '<span>aus</span>';
     $('#t-disk').innerHTML = `${bytes(st.disk)}<span> / ${s.disk ? bytes(s.disk * 1048576) : 'unbegrenzt'}</span>`;
     $('#g-disk').style.setProperty('--w', s.disk ? Math.min(100, (st.disk || 0) / (s.disk * 1048576) * 100) + '%' : '0%');
-    $('#t-net').innerHTML = on ? `${bytes(st.rx)}<span> rein</span> &nbsp;${bytes(st.tx)}<span> raus</span>` : '<span>aus</span>';
+    $('#t-net').innerHTML = on ? `${bytes(st.rx)}<span> ${tt('rein', 'in')}</span> &nbsp;${bytes(st.tx)}<span> ${tt('raus', 'out')}</span>` : '<span>aus</span>';
     if (on) {
       cpuH.push(st.cpu || 0); memH.push(st.mem || 0);
       if (cpuH.length > 60) { cpuH.shift(); memH.shift(); }
@@ -604,7 +667,7 @@ async function tabAddons(c) {
       const inst = byProject(h.project_id);
       return `<div class="addon" data-open="${i}" title="Details ansehen">${thumb(h.icon_url, h.title, 'sq')}
         <div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b class="ell">${esc(h.title)}</b></div>
-        <div class="faint ell" style="font-size:12px">von ${esc(h.author)} · ${I('download', 'xs')} ${compact(h.downloads)}</div>
+        <div class="faint ell" style="font-size:12px">${tt('von', 'by')} ${esc(h.author)} · ${I('download', 'xs')} ${compact(h.downloads)}</div>
         <p>${esc(h.description)}</p></div>
         <div class="acol"><button class="btn small ${inst ? '' : 'primary'}" data-i="${i}">${inst ? I('refresh') + 'Neu laden' : I('download') + 'Installieren'}</button></div></div>`;
     }).join('')}</div>
@@ -644,7 +707,7 @@ async function tabAddons(c) {
   const discover = () => {
     $('#abody').innerHTML = `<div id="rhint">${changed ? restartHint : ''}</div>
       <div class="row wrap" style="margin-bottom:16px">
-        <div class="search grow" style="max-width:460px">${I('search')}<input class="input" id="aq" placeholder="${what} suchen (z. B. ${info.kind === 'plugin' ? 'LuckPerms, EssentialsX' : info.kind === 'mod' ? 'Lithium, Sodium' : 'Vanilla Tweaks'}) ..." value="${esc(q)}"></div>
+        <div class="search grow" style="max-width:460px">${I('search')}<input class="input" id="aq" placeholder="${tt(`${what} suchen (z. B.`, `Search ${what.toLowerCase()} (e.g.`)} ${info.kind === 'plugin' ? 'LuckPerms, EssentialsX' : info.kind === 'mod' ? 'Lithium, Sodium' : 'Vanilla Tweaks'}) ..." value="${esc(q)}"></div>
         <select class="input" id="asort" style="width:auto;height:38px"><option value="relevance">Relevanz</option><option value="downloads">Downloads</option><option value="follows">Beliebt</option><option value="updated">Aktualisiert</option><option value="newest">Neu</option></select>
         <label class="row" style="gap:6px"><span class="muted" style="font-size:13px">Minecraft</span><input class="input mono" id="aver" value="${esc(ver)}" placeholder="alle" style="width:90px;height:38px"></label>
       </div>
@@ -665,7 +728,7 @@ async function tabAddons(c) {
         <span class="faint mono ell" style="font-size:12px;display:block">${esc(x.file)}${x.addon?.version ? ' · ' + esc(x.addon.version) : ''} · ${bytes(x.size)}</span></div>
         <label class="check" title="An/aus"><span class="switch"><input type="checkbox" data-t="${i}" ${x.off ? '' : 'checked'}><i></i></span></label>
         <button class="ib danger" data-r="${i}" title="Entfernen">${I('trash')}</button></div>`).join('')}</div>`
-      : `<div class="empty"><span class="term-label">$ ls ${esc(info.folder)}/<br>(leer)</span>Noch keine ${what}. Unter Entdecken findest du tausende.</div>`);
+      : `<div class="empty"><span class="term-label">$ ls ${esc(info.folder)}/<br>(leer)</span>${tt(`Noch keine ${what}. Unter Entdecken findest du tausende.`, `No ${what.toLowerCase()} yet. You'll find thousands under Discover.`)}</div>`);
     bindRestart();
     $$('[data-t]').forEach(x => x.onchange = () => api('POST', `/servers/${id}/addons/remove`, { file: installed[x.dataset.t].file, toggle: true }).then(async () => { changed = true; await loadInstalled(); list(); }).catch(fail));
     $$('[data-r]').forEach(b => b.onclick = async () => {
@@ -716,7 +779,7 @@ function tabFiles(c) {
     list.innerHTML = `<div class="li headrow"><input type="checkbox" id="all"><span>Name</span><span class="sz">Größe</span><span class="dt">Geändert</span><span></span></div>` +
       entries.map((e, i) => `<div class="li ${sel.has(e.name) ? 'sel' : ''}" data-i="${i}">
         <input type="checkbox" ${sel.has(e.name) ? 'checked' : ''}>
-        <span class="nm ${e.dir ? 'dir' : ''}">${I(e.dir ? 'folder' : 'file')}<span class="ell">${esc(e.name)}${e.link ? ' <span class="faint">(Link)</span>' : ''}</span></span>
+        <span class="nm ${e.dir ? 'dir' : ''}">${I(e.dir ? 'folder' : 'file')}<span class="ell notr">${esc(e.name)}${e.link ? ' <span class="faint">(Link)</span>' : ''}</span></span>
         <span class="sz">${e.dir ? '' : bytes(e.size)}</span><span class="dt">${when(e.mod)}</span>
         <button class="ib" data-m>${I('dots')}</button></div>`).join('');
     $('#all').onchange = ev => { entries.forEach(e => ev.target.checked ? sel.add(e.name) : sel.delete(e.name)); draw(); };
@@ -862,7 +925,7 @@ function tabBackups(c) {
   const { id } = c;
   c.el.innerHTML = `<div class="panel"><div class="ph"><h2 class="grow">Backups</h2><span class="muted" id="bmax" style="font-size:13px"></span>
     <button class="btn primary small" id="bnew">${I('plus')}Backup erstellen</button></div><div id="blist"></div></div>
-    <p class="term-label" style="margin-top:12px">Dateien ausschließen: Muster zeilenweise in <b>.swignore</b> (oder .pteroignore) im Serverordner.</p>`;
+    <p class="term-label" style="margin-top:12px">${tt('Dateien ausschließen: Muster zeilenweise in <b>.swignore</b> (oder .pteroignore) im Serverordner.', 'Exclude files: one pattern per line in <b>.swignore</b> (or .pteroignore) in the server folder.')}</p>`;
   const load = async () => {
     const r = await api('GET', `/servers/${id}/backups`).catch(fail); if (!r) return;
     $('#bmax').textContent = `${r.backups.length} von ${r.max || 5}, ältere werden automatisch gelöscht`;
@@ -997,7 +1060,7 @@ async function tabSubusers(c) {
       ${subs.map((su, i) => `<div class="stack" style="gap:8px;padding-top:12px;border-top:1px solid var(--border)">
         <div class="row"><span class="avatar">${esc(nameOf(su.user)[0])}</span><b class="grow">${esc(nameOf(su.user))}</b><button class="ib danger" data-rm="${i}">${I('trash')}</button></div>
         <div class="perm-grid">${Object.entries(PERM_NAMES).map(([p, n]) => `<label class="check"><input type="checkbox" data-i="${i}" data-p="${p}" ${su.perms?.includes(p) ? 'checked' : ''}>${n}</label>`).join('')}</div></div>`).join('')}
-      ${names.length < 2 ? `<p class="muted" style="margin:0">Lege zuerst unter <a href="#/benutzer">Benutzer</a> weitere Konten an.</p>` : ''}
+      ${names.length < 2 ? `<p class="muted" style="margin:0">${tt('Lege zuerst unter <a href="#/benutzer">Benutzer</a> weitere Konten an.', 'First create more accounts under <a href="#/benutzer">Users</a>.')}</p>` : ''}
       <div><button class="btn primary" id="save">${I('check')}Speichern</button></div></div></div>`;
     const add = $('#addu');
     if (add) add.onchange = () => { if (add.value) { subs.push({ user: add.value, perms: ['console', 'power'] }); draw(); } };
@@ -1041,7 +1104,7 @@ async function tabSettings(c) {
   const dom = $('#dom');
   if (dom) api('GET', '/settings').then(set => {
     if (!set.cfConnected || !(set.cfZones || []).length) {
-      dom.innerHTML = `<p class="muted" style="margin:0">Verbinde zuerst Cloudflare unter <a href="#/einstellungen">Einstellungen</a>, dann kannst du hier eine Adresse wie <span class="mono">minecraft.deinedomain.de</span> vergeben.</p>`;
+      dom.innerHTML = `<p class="muted" style="margin:0">${tt('Verbinde zuerst Cloudflare unter <a href="#/einstellungen/cloudflare">Einstellungen</a>, dann kannst du hier eine Adresse wie <span class="mono">minecraft.deinedomain.de</span> vergeben.', 'Connect Cloudflare under <a href="#/einstellungen/cloudflare">Settings</a> first, then you can assign an address like <span class="mono">minecraft.example.com</span> here.')}</p>`;
       return;
     }
     const d = s.domain || {};
@@ -1052,8 +1115,8 @@ async function tabSettings(c) {
         <select class="input" id="d-zone" style="max-width:260px">${set.cfZones.map(z => `<option value="${z.id}" ${z.id === d.zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select>
         <button class="btn primary" id="d-save">${I('check')}${s.domain ? 'Ändern' : 'Vergeben'}</button>
         ${s.domain ? `<button class="btn danger" id="d-rm">${I('trash')}Entfernen</button>` : ''}</div>
-      ${s.domain ? `<div class="banner ${d.status && d.status !== 'ok' ? 'bad' : ''}" style="margin:0"><span class="grow">${d.status && d.status !== 'ok' ? esc(d.status) : `Spieler verbinden sich mit <b class="mono">${esc(serverAddr(s))}</b>${d.srv ? ' (ohne Port, per SRV-Eintrag)' : ''}.`}</span><button class="btn small" id="d-copy">${I('copy')}Kopieren</button></div>` : ''}
-      <p class="faint" style="margin:0;font-size:12.5px">${isMC ? 'Für Minecraft Java legt Serverwerk zusätzlich einen SRV-Eintrag an, damit kein Port nötig ist. ' : ''}Leer lassen = die Domain selbst. Der Port ${s.ports[0]} muss im Router freigegeben sein.</p>`;
+      ${s.domain ? `<div class="banner ${d.status && d.status !== 'ok' ? 'bad' : ''}" style="margin:0"><span class="grow">${d.status && d.status !== 'ok' ? esc(d.status) : tt(`Spieler verbinden sich mit <b class="mono">${esc(serverAddr(s))}</b>${d.srv ? ' (ohne Port, per SRV-Eintrag)' : ''}.`, `Players connect with <b class="mono">${esc(serverAddr(s))}</b>${d.srv ? ' (no port needed, via SRV record)' : ''}.`)}</span><button class="btn small" id="d-copy">${I('copy')}Kopieren</button></div>` : ''}
+      <p class="faint" style="margin:0;font-size:12.5px">${isMC ? tt('Für Minecraft Java legt Serverwerk zusätzlich einen SRV-Eintrag an, damit kein Port nötig ist. ', 'For Minecraft Java, Serverwerk also creates an SRV record so no port is needed. ') : ''}${tt(`Leer lassen = die Domain selbst. Der Port ${s.ports[0]} muss im Router freigegeben sein.`, `Leave empty = the domain itself. Port ${s.ports[0]} must be forwarded in your router.`)}</p>`;
     $('#d-save').onclick = ev => {
       const b = ev.currentTarget; b.disabled = true;
       api('POST', `/servers/${id}/domain`, { zoneId: $('#d-zone').value, prefix: $('#d-pre').value })
@@ -1096,11 +1159,11 @@ async function pageCreate(page) {
   const eggs = (eggsR.eggs || []).filter(e => e.compatible !== false);
   const hiddenEggs = (eggsR.eggs || []).length - eggs.length;
   if (!pinfo.configured) {
-    page.innerHTML = `<div class="head"><div><h1>Neuer Server</h1></div></div>` + `<div class="empty"><span class="term-label">$ cat /etc/serverwerk/ports<br>(leer)</span><b style="display:block;color:var(--text);margin-bottom:6px">Erst Ports festlegen</b>Trag unter Allocations ein, welche Ports in deinem Router freigegeben sind (z. B. <span class="mono">25565-25575</span>). Serverwerk vergibt dann automatisch freie Ports daraus.<div style="margin-top:16px"><a class="btn primary" href="#/allocations">${I('plug')}Zu den Allocations</a></div></div>`;
+    page.innerHTML = `<div class="head"><div><h1>Neuer Server</h1></div></div>` + `<div class="empty"><span class="term-label">$ cat /etc/serverwerk/ports<br>(leer)</span><b style="display:block;color:var(--text);margin-bottom:6px">Erst Ports festlegen</b>${tt('Trag unter Allocations ein, welche Ports in deinem Router freigegeben sind (z. B. <span class="mono">25565-25575</span>). Serverwerk vergibt dann automatisch freie Ports daraus.', 'Enter under Allocations which ports are forwarded in your router (e.g. <span class="mono">25565-25575</span>). Serverwerk then assigns free ports from them automatically.')}<div style="margin-top:16px"><a class="btn primary" href="#/allocations">${I('plug')}Zu den Allocations</a></div></div>`;
     return;
   }
   if (!pinfo.free.length) {
-    page.innerHTML = `<div class="head"><div><h1>Neuer Server</h1></div></div><div class="empty"><b style="display:block;color:var(--text);margin-bottom:6px">Alle Ports sind belegt</b>Alle ${pinfo.total} Ports aus deiner Liste sind vergeben. Erweitere die Liste unter Allocations.<div style="margin-top:16px"><a class="btn primary" href="#/allocations">${I('plug')}Zu den Allocations</a></div></div>`;
+    page.innerHTML = `<div class="head"><div><h1>Neuer Server</h1></div></div><div class="empty"><b style="display:block;color:var(--text);margin-bottom:6px">Alle Ports sind belegt</b>${tt(`Alle ${pinfo.total} Ports aus deiner Liste sind vergeben. Erweitere die Liste unter Allocations.`, `All ${pinfo.total} ports from your list are taken. Extend the list under Allocations.`)}<div style="margin-top:16px"><a class="btn primary" href="#/allocations">${I('plug')}Zu den Allocations</a></div></div>`;
     return;
   }
   const ports = pinfo.free;
@@ -1108,10 +1171,10 @@ async function pageCreate(page) {
   const step1 = () => {
     page.innerHTML = `<div class="head"><div><h1>Neuer Server</h1><div class="sub steps"><b>1 Egg wählen</b><span>2 Einstellungen</span></div></div>
       <div class="tools"><div class="row" style="position:relative"><input class="input" id="q" placeholder="Suchen ..." style="width:240px;height:38px" value="${esc(q)}"></div><a class="btn" href="#/eggs/katalog">${I('plus')}Eggs holen</a></div></div>
-      ${hiddenEggs ? `<p class="faint" style="margin:-10px 0 16px;font-size:13px">${hiddenEggs} installierte Eggs sind ausgeblendet, weil sie nicht auf diesem Rechner (${esc(archName(eggsR.arch))}) laufen.</p>` : ''}<div id="eggl"></div>`;
+      ${hiddenEggs ? `<p class="faint" style="margin:-10px 0 16px;font-size:13px">${tt(`${hiddenEggs} installierte Eggs sind ausgeblendet, weil sie nicht auf diesem Rechner (${esc(archName(eggsR.arch))}) laufen.`, `${hiddenEggs} installed eggs are hidden because they don't run on this machine (${esc(archName(eggsR.arch))}).`)}</p>` : ''}<div id="eggl"></div>`;
     const draw = () => {
       const f = eggs.filter(e => !q || (e.name + ' ' + e.category + ' ' + e.description).toLowerCase().includes(q.toLowerCase()));
-      if (!eggs.length) { $('#eggl').innerHTML = `<div class="empty"><span class="term-label">$ ls /eggs<br>(leer)</span>Noch keine Eggs installiert. <a href="#/eggs/katalog">Zum Katalog</a> – dort z. B. Paper oder Vanilla für Minecraft holen.</div>`; return; }
+      if (!eggs.length) { $('#eggl').innerHTML = `<div class="empty"><span class="term-label">$ ls /eggs<br>(leer)</span>${tt('Noch keine Eggs installiert. <a href="#/eggs/katalog">Zum Katalog</a> – dort z. B. Paper oder Vanilla für Minecraft holen.', 'No eggs installed yet. <a href="#/eggs/katalog">Go to the catalog</a> – get e.g. Paper or Vanilla for Minecraft there.')}</div>`; return; }
       const cats = [...new Set(f.map(e => e.category))];
       $('#eggl').innerHTML = cats.map(c => `<div class="cat-h">${esc(c)}</div><div class="eggs">${f.filter(e => e.category === c).map(e => `<button class="egg" data-id="${e.id}">${thumb(eggIcon(e.id), e.name, 'banner')}<div class="eb"><b>${esc(e.name)}</b><p>${esc(e.description)}</p></div></button>`).join('')}</div>`).join('') || '<div class="muted">Nichts gefunden.</div>';
       $$('[data-id]').forEach(b => b.onclick = () => { egg = eggs.find(e => e.id === b.dataset.id); step2(); });
@@ -1201,7 +1264,7 @@ async function pageEggs(page, sub, arg) {
   const eggsR = await api('GET', '/eggs').catch(fail) || { eggs: [] };
   const eggs = eggsR.eggs || [];
   const body = $('#ebody');
-  if (!eggs.length) { body.innerHTML = `<div class="empty"><span class="term-label">$ ls /eggs<br>(leer)</span>Noch keine Eggs. Im <a href="#/eggs/katalog">Katalog</a> gibt es über 300 fertige Vorlagen.</div>`; return; }
+  if (!eggs.length) { body.innerHTML = `<div class="empty"><span class="term-label">$ ls /eggs<br>(leer)</span>${tt('Noch keine Eggs. Im <a href="#/eggs/katalog">Katalog</a> gibt es über 300 fertige Vorlagen.', 'No eggs yet. The <a href="#/eggs/katalog">catalog</a> has over 300 ready-made templates.')}</div>`; return; }
   const cats = [...new Set(eggs.map(e => e.category))];
   body.innerHTML = cats.map(c => `<div class="cat-h">${esc(c)}</div><div class="eggs">${eggs.filter(e => e.category === c).map(e => `
     <a class="egg pick" href="#/eggs/e/${e.id}">${thumb(eggIcon(e.id), e.name, 'banner')}<div class="eb">
@@ -1231,7 +1294,7 @@ async function eggPage(page, { id, url }) {
         <div class="grow" style="min-width:0"><h1 class="ell">${esc(e.name)}</h1>
           <div class="row wrap" style="gap:6px;margin-top:6px"><span class="tag acc">${esc(e.category || cat?.category || '')}</span><span class="tag">${esc(e.format)}</span>${(e.features || []).map(f => `<span class="tag">${esc(f)}</span>`).join('')}</div></div>
         <div class="row wrap" id="eacts"></div></div></div>
-    ${e.compatible === false ? `<div class="banner bad"><span class="grow"><b>Läuft nicht auf diesem Rechner.</b> Die Docker-Images dieses Eggs gibt es nicht für ${esc(archName(e.arch))}.</span></div>` : ''}
+    ${e.compatible === false ? `<div class="banner bad"><span class="grow">${tt(`<b>Läuft nicht auf diesem Rechner.</b> Die Docker-Images dieses Eggs gibt es nicht für ${esc(archName(e.arch))}.`, `<b>Doesn't run on this machine.</b> This egg's Docker images are not available for ${esc(archName(e.arch))}.`)}</span></div>` : ''}
     <div class="egrid">
       <div class="stack">
         <div class="panel"><div class="ph"><h2>Beschreibung</h2></div><div class="pb"><p class="prose" style="margin:0">${esc(e.description || 'Keine Beschreibung.').replace(/\n/g, '<br>')}</p></div></div>
@@ -1312,12 +1375,12 @@ async function catalogView() {
     const hidden = data.eggs.length - ok.length, ar = data.arch || {};
     const cats = [...new Set(ok.map(e => e.category))].sort();
     const f = ok.filter(e => (!cat || e.category === cat) && (!q || (e.name + ' ' + e.description).toLowerCase().includes(q.toLowerCase())));
-    body.innerHTML = `<div class="row wrap" style="margin-bottom:14px"><div class="search grow" style="max-width:420px">${I('search')}<input class="input" id="cq" placeholder="Suchen (z. B. Paper, Valheim, Teamspeak) ..." value="${esc(q)}"></div>
-      <span class="grow"></span><span class="faint" style="font-size:12.5px">${ok.length} Eggs für ${esc(archName(ar.arch))}${hidden ? `, ${hidden} ausgeblendet` : ''}${ar.scanning ? ` · prüfe Architektur ${ar.done}/${ar.total}` : ''} · Stand ${when(data.fetched)}</span><button class="ib" id="cref" title="Katalog neu laden">${I('refresh')}</button></div>
+    body.innerHTML = `<div class="row wrap" style="margin-bottom:14px"><div class="search grow" style="max-width:420px">${I('search')}<input class="input" id="cq" placeholder="${tt('Suchen (z. B. Paper, Valheim, Teamspeak) ...', 'Search (e.g. Paper, Valheim, Teamspeak) ...')}" value="${esc(q)}"></div>
+      <span class="grow"></span><span class="faint" style="font-size:12.5px">${ok.length} Eggs für ${esc(archName(ar.arch))}${hidden ? `, ${hidden} ${tt('ausgeblendet', 'hidden')}` : ''}${ar.scanning ? ` · prüfe Architektur ${ar.done}/${ar.total}` : ''} · Stand ${when(data.fetched)}</span><button class="ib" id="cref" title="Katalog neu laden">${I('refresh')}</button></div>
       <div class="chips" style="margin-bottom:18px"><button class="chip ${!cat ? 'on' : ''}" data-c="">Alle</button>${cats.map(c => `<button class="chip ${c === cat ? 'on' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       <div class="eggs" id="clist">${f.slice(0, 300).map(e => `<a class="egg pick" href="#/eggs/k/${encodeURIComponent(e.url)}">${thumb(catIcon(e.url), e.name, 'banner')}<div class="eb">
         <div class="row"><b class="grow ell" title="${esc(e.name)}">${esc(e.name)}</b>
-        ${e.installed ? `<span class="tag acc">installiert</span>` : `<button class="btn small" data-i="${data.eggs.indexOf(e)}">${I('download')}Holen</button>`}</div>
+        ${e.installed ? `<span class="tag acc">${tt('installiert', 'installed')}</span>` : `<button class="btn small" data-i="${data.eggs.indexOf(e)}">${I('download')}Holen</button>`}</div>
         <p>${esc(e.description)}</p>${!cat ? `<div class="row"><span class="tag">${esc(e.category)}</span></div>` : ''}</div></a>`).join('') || '<div class="muted">Nichts gefunden.</div>'}</div>
       ${f.length > 300 ? `<p class="muted">… und ${f.length - 300} weitere, bitte genauer suchen.</p>` : ''}`;
     const cq = $('#cq');
@@ -1443,7 +1506,7 @@ async function addonDetail(box, { hit, info, ver, installedFile, onInstall, onBa
       <div class="stack">
         <div class="panel"><div class="ph"><h2>Versionen</h2><span class="faint" style="font-size:12.5px">${vs.length}</span></div><div class="vlist">${vs.slice(0, 25).map((v, i) => `
           <div class="vrow ${fits(v) ? '' : 'nofit'}"><div class="grow" style="min-width:0"><b class="ell" style="display:block;font-size:13.5px">${esc(v.version_number)}</b>
-            <span class="faint" style="font-size:12px">${esc(v.game_versions.slice(-3).join(', '))}${v.game_versions.length > 3 ? ' …' : ''} · ${new Date(v.date_published).toLocaleDateString('de-DE')}${v.version_type !== 'release' ? ' · ' + esc(v.version_type) : ''}</span></div>
+            <span class="faint" style="font-size:12px">${esc(v.game_versions.slice(-3).join(', '))}${v.game_versions.length > 3 ? ' …' : ''} · ${new Date(v.date_published).toLocaleDateString(I18N.lang === 'en' ? 'en-GB' : 'de-DE')}${v.version_type !== 'release' ? ' · ' + esc(v.version_type) : ''}</span></div>
             <button class="ib" data-v="${i}" title="Diese Version installieren">${I('download')}</button></div>`).join('') || '<div class="pb muted">Keine Version für diesen Server.</div>'}</div></div>
         ${links.length ? `<div class="panel"><div class="ph"><h2>Links</h2></div><div class="pb stack" style="gap:6px">${links.map(([k, n]) => `<a href="${esc(p[k])}" target="_blank" rel="noopener">${n}</a>`).join('')}</div></div>` : ''}
         <div class="panel"><dl class="pb kv one"><dt>Lizenz</dt><dd>${esc(p.license?.name || p.license?.id || '–')}</dd><dt>Aktualisiert</dt><dd>${when(p.updated)}</dd><dt>Quelle</dt><dd>modrinth.com</dd></dl></div>
@@ -1494,6 +1557,7 @@ async function pageSettings(page, sec = 'allgemein') {
     <section data-sec="allgemein" class="stack">
       <div class="panel"><div class="ph"><h2>Allgemein</h2></div><div class="pb stack">
         <label class="f">Name des Panels<input class="input" id="s-name" value="${esc(d.panelName)}"><small>Steht im Browser-Tab und oben links.</small></label>
+        <label class="f">Sprache<select class="input" id="s-lang"><option value="en" ${d.language === 'en' ? 'selected' : ''}>English</option><option value="de" ${d.language !== 'en' ? 'selected' : ''}>Deutsch</option></select><small>Gilt für alle Benutzer.</small></label>
         <label class="f">Zeitzone für alle Server<input class="input mono" id="s-tz" list="tzlist" value="${esc(d.timezone || '')}" placeholder="${esc(d.hostTimezone || 'Europe/Berlin')} (wie dieser Rechner)">
           <datalist id="tzlist">${['Europe/Berlin', 'Europe/Vienna', 'Europe/Zurich', 'Europe/London', 'Europe/Paris', 'UTC', 'America/New_York', 'Asia/Tokyo'].map(z => `<option value="${z}">`).join('')}</datalist>
           <small>Bestimmt die Uhrzeit in den Server-Logs. Leer = wie dieser Rechner. Gilt ab dem nächsten Start.</small></label>
@@ -1548,7 +1612,11 @@ async function pageSettings(page, sec = 'allgemein') {
   </div>`;
   $$('[data-sec]').forEach(x => x.hidden = x.dataset.sec !== sec);
   const save = (body, msg = 'Gespeichert') => api('PUT', '/settings', body).then(r => { toast(msg, 'good'); return r; }).catch(fail);
-  $('#s-gen').onclick = () => save({ panelName: $('#s-name').value, timezone: $('#s-tz').value }).then(r => { if (r) { S.me.panelName = r.panelName; document.title = r.panelName; } });
+  $('#s-gen').onclick = () => save({ panelName: $('#s-name').value, timezone: $('#s-tz').value, language: $('#s-lang').value }).then(r => {
+    if (!r) return;
+    S.me.panelName = r.panelName; document.title = r.panelName;
+    if (r.language !== I18N.lang) location.reload();
+  });
   $('#s-def').onclick = () => save({ defaults: { memory: +$('#df-mem').value, cpu: +$('#df-cpu').value, disk: +$('#df-disk').value, maxBackups: +$('#df-bak').value, autoRestart: $('#df-auto').checked, startAfter: $('#df-start').checked } });
   $('#s-sec').onclick = () => save({ security: { sessionDays: +$('#se-days').value, maxFails: +$('#se-fails').value, lockMinutes: +$('#se-lock').value } }).then(r => {
     if (r) { $('#se-days').value = r.security.sessionDays; $('#se-fails').value = r.security.maxFails; $('#se-lock').value = r.security.lockMinutes; }
@@ -1569,14 +1637,20 @@ async function pageSettings(page, sec = 'allgemein') {
     $('#cf-tag').innerHTML = d.cfConnected ? '<span class="tag acc">verbunden</span>' : '';
     drawPub(d);
     if (!d.cfConnected) {
-      cf.innerHTML = `<p class="muted" style="margin:0">Verbinde dein Cloudflare-Konto, dann bekommt jeder Server auf Wunsch eine eigene Adresse wie <span class="mono">minecraft.deinedomain.de</span>. Bei Minecraft Java brauchen Spieler dann keinen Port mehr.</p>
-        <ol class="steps-list">
+      cf.innerHTML = `<p class="muted" style="margin:0">${tt('Verbinde dein Cloudflare-Konto, dann bekommt jeder Server auf Wunsch eine eigene Adresse wie <span class="mono">minecraft.deinedomain.de</span>. Bei Minecraft Java brauchen Spieler dann keinen Port mehr.', 'Connect your Cloudflare account and every server can get its own address like <span class="mono">minecraft.example.com</span>. For Minecraft Java, players then don\'t need a port anymore.')}</p>
+        ${tt(`<ol class="steps-list">
           <li><a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com &rsaquo; My Profile &rsaquo; API Tokens</a> öffnen und <b>Create Token</b> klicken. Einen Namen eintragen, z. B. <span class="mono">serverwerk</span>.</li>
           <li>Bei <b>Policies</b> auf <b>Start from scratch</b> &rsaquo; <b>Start with a Zone policy</b>. Oben <span class="mono">Include</span> + <span class="mono">All zones</span> lassen (oder nur bestimmte Domains wählen).</li>
           <li>In dieser Policy <b>DNS &amp; Zones</b> aufklappen und anhaken: <span class="mono">DNS</span> mit <b>Edit</b> bzw. <b>Write</b> und <span class="mono">Zone</span> mit <b>Read</b>. Daneben steht dann <span class="mono">2/12</span>. Tipp: Das Suchfeld darüber findet beide schneller.</li>
           <li>Nur fürs öffentliche Panel: unten <b>Add new policy</b> &rsaquo; <b>Account policy</b>, dein Konto wählen, im Suchfeld <span class="mono">Tunnel</span> eingeben und <span class="mono">Cloudflare Tunnel</span> mit <b>Edit</b> bzw. <b>Write</b> anhaken.</li>
           <li>Token expiration auf <b>No expiration</b> lassen, Client IP filtering leer lassen, dann <b>Continue to summary</b> &rsaquo; <b>Create Token</b>.</li>
-          <li>Den Token kopieren (Cloudflare zeigt ihn nur einmal) und hier einfügen.</li></ol>
+          <li>Den Token kopieren (Cloudflare zeigt ihn nur einmal) und hier einfügen.</li></ol>`, `<ol class="steps-list">
+          <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com &rsaquo; My Profile &rsaquo; API Tokens</a> and click <b>Create Token</b>. Enter a name, e.g. <span class="mono">serverwerk</span>.</li>
+          <li>Under <b>Policies</b> click <b>Start from scratch</b> &rsaquo; <b>Start with a Zone policy</b>. Keep <span class="mono">Include</span> + <span class="mono">All zones</span> at the top (or choose only certain domains).</li>
+          <li>In this policy, expand <b>DNS &amp; Zones</b> and tick <span class="mono">DNS</span> with <b>Edit</b> (or <b>Write</b>) and <span class="mono">Zone</span> with <b>Read</b>. It then shows <span class="mono">2/12</span>. Tip: the search field above finds both faster.</li>
+          <li>Only for the public panel: at the bottom <b>Add new policy</b> &rsaquo; <b>Account policy</b>, choose your account, type <span class="mono">Tunnel</span> into the search field and tick <span class="mono">Cloudflare Tunnel</span> with <b>Edit</b> (or <b>Write</b>).</li>
+          <li>Leave token expiration on <b>No expiration</b> and Client IP filtering empty, then <b>Continue to summary</b> &rsaquo; <b>Create Token</b>.</li>
+          <li>Copy the token (Cloudflare shows it only once) and paste it here.</li></ol>`)}
         <form class="row wrap" id="cf-f"><input class="input mono grow" id="cf-t" placeholder="API-Token" autocomplete="off" style="min-width:240px"><button class="btn primary">Verbinden</button></form>`;
       $('#cf-f').onsubmit = ev => {
         ev.preventDefault();
@@ -1595,7 +1669,7 @@ async function pageSettings(page, sec = 'allgemein') {
     cf.innerHTML = `
       <div class="f"><span>Domains</span><div class="row wrap" style="gap:6px">${(d.cfZones || []).map(z => `<span class="tag acc">${esc(z.name)}</span>`).join('')}</div></div>
       <div class="f"><span>Wohin sollen die Adressen der Spielserver zeigen?</span>
-        <label class="radio"><input type="radio" name="tg" value="ip" ${d.cfTarget !== 'host' ? 'checked' : ''}><span><b>Öffentliche IP automatisch</b><small>Jetzt: <span class="mono">${esc(d.publicIp || 'unbekannt')}</span>. Wird alle 5 Minuten geprüft und bei Änderung angepasst.</small></span></label>
+        <label class="radio"><input type="radio" name="tg" value="ip" ${d.cfTarget !== 'host' ? 'checked' : ''}><span><b>Öffentliche IP automatisch</b><small>${tt(`Jetzt: <span class="mono">${esc(d.publicIp || 'unbekannt')}</span>. Wird alle 5 Minuten geprüft und bei Änderung angepasst.`, `Now: <span class="mono">${esc(d.publicIp || 'unknown')}</span>. Checked every 5 minutes and updated when it changes.`)}</small></span></label>
         <label class="radio"><input type="radio" name="tg" value="host" ${d.cfTarget === 'host' ? 'checked' : ''}><span><b>Eigener Hostname</b><small>Zum Beispiel deine DynDNS-Adresse vom Router. Die Server zeigen dann per CNAME darauf.</small>
           <input class="input mono" id="cf-h" value="${esc(d.cfHost)}" placeholder="meinrouter.myfritz.net" style="margin-top:8px"></span></label></div>
       <div class="banner" style="margin:0"><span class="grow" style="font-size:13px">Die Ports der Server müssen im Router an diesen Rechner weitergeleitet sein. Einträge sind „nur DNS“ (graue Wolke), weil Spiele nicht über den Cloudflare-Proxy laufen. Serverwerk ändert nur Einträge, die es selbst angelegt hat.</span></div>
@@ -1623,7 +1697,7 @@ async function pageSettings(page, sec = 'allgemein') {
       return;
     }
     const zones = d.cfZones || [];
-    box.innerHTML = `<p class="muted" style="margin:0">Das Panel bekommt eine eigene Adresse mit HTTPS, z. B. <span class="mono">panel.${esc(zones[0]?.name || 'deinedomain.de')}</span>. Dafür wird ein Cloudflare Tunnel benutzt: keine Portfreigabe nötig, die Verbindung geht von hier nach außen.</p>
+    box.innerHTML = `<p class="muted" style="margin:0">${tt(`Das Panel bekommt eine eigene Adresse mit HTTPS, z. B. <span class="mono">panel.${esc(zones[0]?.name || 'deinedomain.de')}</span>. Dafür wird ein Cloudflare Tunnel benutzt: keine Portfreigabe nötig, die Verbindung geht von hier nach außen.`, `The panel gets its own HTTPS address, e.g. <span class="mono">panel.${esc(zones[0]?.name || 'example.com')}</span>. This uses a Cloudflare Tunnel: no port forwarding needed, the connection goes from here to the outside.`)}</p>
       <div class="row wrap" style="gap:8px;align-items:center">
         <input class="input mono" id="pub-pre" value="${esc(p ? (p.prefix === '@' ? '' : p.prefix) : 'panel')}" placeholder="panel" style="max-width:200px">
         <span class="mono muted">.</span>
@@ -1662,9 +1736,11 @@ function importView(box) {
     box.innerHTML = `<div class="panel"><div class="ph">${thumb('', 'Pterodactyl', 'sq sm')}<h2>Aus Pterodactyl übernehmen</h2><span class="faint" style="font-size:13px">geht auch mit Pelican</span></div><div class="pb stack">
       <p class="muted" style="margin:0">Serverwerk liest deine Server aus Pterodactyl aus und legt sie hier mit gleichen Ports, Grenzen, Variablen und allen Dateien an. In Pterodactyl wird nichts gelöscht.</p>
       <ol class="steps-list">
-        <li>In Pterodactyl oben rechts auf dein Konto &rsaquo; <b>API Credentials</b> &rsaquo; Beschreibung eintragen &rsaquo; <b>Create</b>. Der Key beginnt mit <span class="mono">ptlc_</span>.</li>
+        ${tt(`<li>In Pterodactyl oben rechts auf dein Konto &rsaquo; <b>API Credentials</b> &rsaquo; Beschreibung eintragen &rsaquo; <b>Create</b>. Der Key beginnt mit <span class="mono">ptlc_</span>.</li>
         <li>Optional, aber genauer: Als Admin unter <b>Admin &rsaquo; Application API &rsaquo; Create New</b> einen Key mit <span class="mono">Servers: Read</span> und <span class="mono">Nests: Read</span> anlegen (beginnt mit <span class="mono">ptla_</span>). Dann wird das exakte Egg übernommen statt eines gleichnamigen aus dem Katalog.</li>
-        <li>Die Server in Pterodactyl vorher <b>stoppen</b>, damit die Welt beim Kopieren nicht verändert wird.</li></ol>
+        <li>Die Server in Pterodactyl vorher <b>stoppen</b>, damit die Welt beim Kopieren nicht verändert wird.</li></ol>`, `<li>In Pterodactyl, click your account at the top right &rsaquo; <b>API Credentials</b> &rsaquo; enter a description &rsaquo; <b>Create</b>. The key starts with <span class="mono">ptlc_</span>.</li>
+        <li>Optional, but more exact: as admin, create a key under <b>Admin &rsaquo; Application API &rsaquo; Create New</b> with <span class="mono">Servers: Read</span> and <span class="mono">Nests: Read</span> (starts with <span class="mono">ptla_</span>). Then the exact egg is used instead of one with the same name from the catalog.</li>
+        <li><b>Stop</b> the servers in Pterodactyl first, so the world doesn't change while copying.</li></ol>`)}
       <form class="stack" id="imp-f">
         <label class="f">Adresse von Pterodactyl<input class="input mono" name="url" placeholder="https://panel.example.com" required></label>
         <div class="grid2">
@@ -1690,7 +1766,7 @@ function importView(box) {
     const badge = m => ({ installed: '<span class="tag acc">Egg vorhanden</span>', catalog: '<span class="tag acc">Egg aus Katalog</span>', app: '<span class="tag acc">exaktes Egg</span>' }[m?.source] || '');
     if (!r.servers.length) { box.innerHTML = `<div class="empty">Mit diesem Key sind keine Server sichtbar.<div style="margin-top:14px"><button class="btn" id="imp-back">${I('back')}Zurück</button></div></div>`; $('#imp-back').onclick = () => form(); return; }
     box.innerHTML = `<div class="panel"><div class="ph"><h2 class="grow">${r.servers.length} Server gefunden</h2><button class="btn small ghost" id="imp-back">${I('back')}Andere Zugangsdaten</button></div>
-      ${!pinfo.configured ? `<div class="pb" style="padding-bottom:0"><div class="banner bad" style="margin:0"><span class="grow">Lege zuerst unter Allocations deine Ports fest, sonst kann nichts importiert werden.</span><a class="btn small" href="#/allocations">Allocations</a></div></div>` : ''}
+      ${!pinfo.configured ? `<div class="pb" style="padding-bottom:0"><div class="banner bad" style="margin:0"><span class="grow">${tt('Lege zuerst unter Allocations deine Ports fest, sonst kann nichts importiert werden.', 'First set your ports under Allocations, otherwise nothing can be imported.')}</span><a class="btn small" href="#/allocations">Allocations</a></div></div>` : ''}
       <div class="implist">${r.servers.map((s, i) => `<label class="improw ${s.imported ? 'done' : ''}">
         <input type="checkbox" data-i="${i}" ${s.imported ? 'disabled' : s.match?.source !== 'none' ? 'checked' : ''}>
         <div class="grow" style="min-width:0"><b class="ell" style="display:block">${esc(s.name)}</b>
@@ -1757,7 +1833,7 @@ async function pageAllocations(page) {
           ? `<a class="pchip used" href="#/s/${p.server}" title="${esc(p.name)}"><b>${p.port}</b><span class="ell">${esc(p.name)}</span></a>`
           : `<div class="pchip ${p.busy ? 'busy' : 'free'}" title="${p.busy ? 'Port wird von einem anderen Programm auf diesem Rechner benutzt' : 'frei'}"><b>${p.port}</b><span>${p.busy ? 'belegt' : 'frei'}</span></div>`).join('')}
           ${d.ports.length > 600 ? `<div class="muted" style="grid-column:1/-1">… und ${d.ports.length - 600} weitere</div>` : ''}</div></div>` : ''}
-      ${d.outside?.length ? `<div class="banner bad" style="margin:0"><span class="grow">Diese Server nutzen Ports außerhalb deiner Liste: ${d.outside.map(o => `<a href="#/s/${o.server}">${esc(o.name)}</a> (${o.port})`).join(', ')}. Sie laufen weiter, aber ändern lassen sich ihre Ports nur auf Ports aus der Liste.</span></div>` : ''}
+      ${d.outside?.length ? `<div class="banner bad" style="margin:0"><span class="grow">${tt('Diese Server nutzen Ports außerhalb deiner Liste:', 'These servers use ports outside your list:')} ${d.outside.map(o => `<a class="notr" href="#/s/${o.server}">${esc(o.name)}</a> (${o.port})`).join(', ')}. ${tt('Sie laufen weiter, aber ändern lassen sich ihre Ports nur auf Ports aus der Liste.', 'They keep running, but their ports can only be changed to ports from the list.')}</span></div>` : ''}
     </div>`;
     $$('[data-k]').forEach(x => x.oninput = () => { groups[x.dataset.i][x.dataset.k] = x.value; });
     $$('[data-rm]').forEach(b => b.onclick = () => { groups.splice(+b.dataset.rm, 1); if (!groups.length) groups.push({ ports: '', alias: '' }); draw(); });
@@ -1777,7 +1853,7 @@ async function pageUsers(page) {
   const load = async () => {
     const list = await api('GET', '/users').catch(fail) || [];
     $('#ul').innerHTML = `<table class="table"><thead><tr><th>Name</th><th>Rolle</th><th>Server</th><th>Angelegt</th><th></th></tr></thead><tbody>${list.map(u => `
-      <tr><td><div class="row"><span class="avatar">${esc(u.name[0])}</span><b>${esc(u.name)}</b>${u.id === S.me.id ? '<span class="tag">du</span>' : ''}</div></td>
+      <tr><td><div class="row"><span class="avatar">${esc(u.name[0])}</span><b class="notr">${esc(u.name)}</b>${u.id === S.me.id ? '<span class="tag">du</span>' : ''}</div></td>
       <td>${u.admin ? '<span class="tag acc">Admin</span>' : '<span class="tag">Benutzer</span>'}</td><td>${u.servers}</td><td class="muted">${when(u.created)}</td>
       <td class="r"><button class="ib" data-m="${u.id}">${I('dots')}</button></td></tr>`).join('')}</tbody></table>`;
     $$('[data-m]').forEach(b => b.onclick = () => {

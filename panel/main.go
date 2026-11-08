@@ -21,7 +21,7 @@ import (
 	_ "time/tzdata"
 )
 
-var version = "0.9.0"
+var version = "0.10.0"
 
 //go:embed web
 var webFS embed.FS
@@ -30,6 +30,7 @@ func main() {
 	addr := flag.String("addr", envOr("SERVERWERK_ADDR", ":8200"), "Adresse der Weboberfläche")
 	data := flag.String("daten", envOr("SERVERWERK_DATEN", "/var/lib/serverwerk"), "Datenordner")
 	webDir := flag.String("web", "", "Weboberfläche von der Platte lesen (Entwicklung)")
+	langFlag := flag.String("lang", envOr("SERVERWERK_LANG", ""), "Sprache bei der Ersteinrichtung: en oder de")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Serverwerk %s\n\n  serverwerk [-addr :8200] [-daten /var/lib/serverwerk]\n  serverwerk passwort <name> [neues-passwort]   Passwort zurücksetzen\n  serverwerk version\n\n", version)
 		flag.PrintDefaults()
@@ -57,6 +58,24 @@ func main() {
 	st, err := openStore(*data)
 	if err != nil {
 		log.Fatalf("Zustand: %v", err)
+	}
+	// Sprache: einmal festlegen, danach in den Einstellungen änderbar.
+	st.Update(func(s *State) error {
+		if s.Settings.Language == "" {
+			switch {
+			case len(s.Users) > 0:
+				s.Settings.Language = "de" // bestehende Installationen bleiben deutsch
+			case *langFlag == "de" || *langFlag == "en":
+				s.Settings.Language = *langFlag
+			default:
+				s.Settings.Language = "en"
+			}
+		}
+		setLang(s.Settings.Language)
+		return nil
+	})
+	if sub, err := fs.Sub(webFS, "web"); err == nil {
+		loadDict(sub)
 	}
 	ensureSetupCode(st, *data)
 

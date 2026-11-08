@@ -147,7 +147,7 @@ func (m *Manager) Restore() {
 			in.started, _ = time.Parse(time.RFC3339Nano, ci.State.StartedAt)
 		}
 		in.mu.Unlock()
-		in.watch(c.ID, att)
+		in.watch(c.ID, att, false)
 		in.setWant(true) // lief schon vor diesem Update: nach Neustart wieder starten
 	}
 	// Installationen, die beim Absturz liefen, als fehlgeschlagen markieren.
@@ -227,7 +227,7 @@ func (in *Instance) setHint(h string) {
 
 // Panel-Meldung in der Konsole (wie "[Pterodactyl Daemon]").
 func (in *Instance) Say(format string, a ...any) {
-	line := "\x1b[1m\x1b[33m[serverwerk]\x1b[0m " + fmt.Sprintf(format, a...)
+	line := "\x1b[1m\x1b[33m[serverwerk]\x1b[0m " + T(fmt.Sprintf(format, a...))
 	in.mu.Lock()
 	in.addLineLocked(line)
 	in.mu.Unlock()
@@ -539,7 +539,7 @@ func (in *Instance) start() error {
 	in.stopping = false
 	in.started = time.Now()
 	in.mu.Unlock()
-	in.watch(id, att)
+	in.watch(id, att, true)
 	in.Say("Server wird gestartet ...")
 	if err := in.m.dk.Start(ctx, id); err != nil {
 		in.mu.Lock()
@@ -556,7 +556,7 @@ func (in *Instance) start() error {
 }
 
 // watch liest die Ausgabe, wartet auf das Ende und sammelt Werte.
-func (in *Instance) watch(id string, att *Attachment) {
+func (in *Instance) watch(id string, att *Attachment, fresh bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	in.mu.Lock()
 	if in.cancel != nil {
@@ -597,7 +597,13 @@ func (in *Instance) watch(id string, att *Attachment) {
 		}
 	}()
 	go func() {
-		code, err := in.m.dk.Wait(context.Background(), id)
+		// Bei einem frischen Container wird VOR dem Start gewartet: dann auf das
+		// nächste Ende warten, sonst meldet Docker sofort "aus" (Exit 0).
+		cond := ""
+		if fresh {
+			cond = "next-exit"
+		}
+		code, err := in.m.dk.Wait(context.Background(), id, cond)
 		cancel()
 		time.Sleep(200 * time.Millisecond)
 		in.flush()
